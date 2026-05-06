@@ -1,0 +1,15 @@
+menu "MY_SCREEN Configuration"
+    config LCD_TOUCH_ENABLED
+        int "Enable LCD Touch"
+        default 0
+        help
+            选项：是否启用LCD触摸功能。
+            启用后需要正确配置触摸屏相关参数，并在代码中实现触摸事件处理逻辑。
+
+    config LCD_MIRROR_Y
+        int  "Mirror LCD Display Vertically"
+        default 0
+        help
+            选项：是否垂直镜像LCD显示。
+            启用后，LCD显示内容将被垂直翻转。
+endmenu

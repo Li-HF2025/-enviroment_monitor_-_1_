@@ -1,0 +1,34 @@
+menu "My MQTT Configuration"
+    config BROKER_URL
+        string "MQTT Broker URL"
+        default ""
+        help
+            必填：MQTT Broker地址，必须包含协议头。
+            示例（非TLS）：mqtt://mqtts.heclouds.com:1883
+            示例（TLS）：mqtts://mqttstls.heclouds.com:8883
+
+    config ONENET_PRODUCT_ID
+        string "ONENET Product ID"
+        default ""
+        help
+            必填：ONENET产品ID。请在平台产品详情中获取。
+
+    config ONENET_DEVICE_NAME
+        string "ONENET Device Name"
+        default ""
+        help
+            必填：ONENET设备名称。请与平台创建设备时保持一致。
+
+    config ONENET_TOKEN
+        string "ONENET Token"
+        default ""
+        help
+            必填：使用设备key按ONENET规则计算得到的token。
+
+    config ONENET_HEARTBEAT_PAYLOAD
+        string "ONENET First Heartbeat Payload"
+        default ""
+        help
+            选填：连接成功后自动上报到dp/post/json的首条payload。
+            留空则仅自动订阅命令主题，不发送首条上报。
+endmenu

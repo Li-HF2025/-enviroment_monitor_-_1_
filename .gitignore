@@ -1,0 +1,25 @@
+# Common temporary files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+*.log
+
+# Editor and IDE files
+.vscode/
+.idea/
+
+# ESP-IDF project outputs
+ESP/build/
+ESP/.espressif/
+ESP/managed_components/
+ESP/sdkconfig.old
+ESP/sdkconfig
+
+# PlatformIO outputs
+STM/.pio/
+STM/.vscode/

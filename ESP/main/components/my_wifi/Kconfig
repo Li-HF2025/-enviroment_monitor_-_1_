@@ -1,0 +1,21 @@
+menu "My WiFi Configuration"
+
+    config MY_WIFI_SSID
+        string "Wi-Fi SSID"
+        default "Xiaomi"
+        help
+            Wi-Fi SSID to connect to.
+
+    config MY_WIFI_PASSWORD
+        string "Wi-Fi Password"
+        default "258790TLYlhy"
+        help
+            Wi-Fi password to connect with.
+
+    config MY_WIFI_MAXIMUM_RETRY
+        int "Maximum Wi-Fi connection retry"
+        default 5
+        help
+            Maximum number of times to retry connecting to the Wi-Fi network.
+
+endmenu
