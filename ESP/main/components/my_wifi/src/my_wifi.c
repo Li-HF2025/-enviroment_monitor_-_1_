@@ -114,31 +114,6 @@ static void wifi_init_sta(void){
 
 
 
-// /**
-//  * @brief 等待SNTP时间同步完成
-//  * @param max_wait_ms 最大等待时间（毫秒）
-//  * @return true 同步成功, false 超时
-//  */
-// bool sntp_wait_for_sync(uint32_t max_wait_ms){
-//     ESP_LOGI("SNTP", "等待时间同步...");
-    
-//     uint32_t start_time = xTaskGetTickCount() * portTICK_PERIOD_MS;
-    
-//     while(sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED){
-//         uint32_t elapsed = xTaskGetTickCount() * portTICK_PERIOD_MS - start_time;
-        
-//         if(elapsed > max_wait_ms){
-//             ESP_LOGW("SNTP", "⚠️ 时间同步超时（%d ms）", max_wait_ms);
-//             return false;
-//         }
-        
-//         vTaskDelay(pdMS_TO_TICKS(100)); // 每100ms检查一次
-//     }
-    
-//     ESP_LOGI("SNTP", "✅ 时间同步成功！");
-//     return true;
-// }
-
 void wifi_start(){
     esp_err_t ret = nvs_flash_init();//初始化闪存
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
