@@ -27,6 +27,10 @@ void ui_event_main01(lv_event_t * e)
         lv_indev_wait_release(lv_indev_active());
         _ui_screen_change(&ui_main02, LV_SCR_LOAD_ANIM_OVER_LEFT, 500, 0, &ui_main02_screen_init);
     }
+    if(event_code == LV_EVENT_GESTURE &&  lv_indev_get_gesture_dir(lv_indev_active()) == LV_DIR_BOTTOM) {
+        lv_indev_wait_release(lv_indev_active());
+        _ui_screen_change(&ui_setting, LV_SCR_LOAD_ANIM_FADE_ON, 500, 0, &ui_setting_screen_init);
+    }
 }
 
 void ui_event_Label1(lv_event_t * e)

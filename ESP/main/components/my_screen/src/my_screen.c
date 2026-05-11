@@ -301,7 +301,7 @@ void screen_init(){
 #endif
 
     ESP_LOGI(TAG,"创建LVGL示例界面");
-    xTaskCreate(lvgl_port_task,"lvgl_port_task",4096,NULL,5,NULL); // 创建一个LVGL示例界面任务,在这个任务中可以创建一些LVGL的UI元素进行测试展示
+    xTaskCreate(lvgl_port_task,"lvgl_port_task",8192,NULL,5,NULL); // 提高栈空间，避免复杂 LVGL 页面（如下拉框）触发栈溢出
 
     _lock_acquire(&lvgl_api_lock); // 在LVGL任务中使用锁来保护LVGL API的调用,确保线程安全
     //展示初始界面,创建一个标签显示"Hello LVGL!"

@@ -2,13 +2,13 @@ menu "My WiFi Configuration"
 
     config MY_WIFI_SSID
         string "Wi-Fi SSID"
-        default "Xiaomi"
+        default null
         help
             Wi-Fi SSID to connect to.
 
     config MY_WIFI_PASSWORD
         string "Wi-Fi Password"
-        default "258790TLYlhy"
+        default null
         help
             Wi-Fi password to connect with.
 

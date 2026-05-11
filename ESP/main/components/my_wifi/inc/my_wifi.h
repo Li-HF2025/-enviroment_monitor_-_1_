@@ -24,4 +24,6 @@
 #include "lwip/sys.h"
 
 void wifi_start(void);
+bool wifi_connect(const char* ssid, const char* password);
+void wifi_disconnect(void);
 #endif /* __MY_WIFI_H__ */

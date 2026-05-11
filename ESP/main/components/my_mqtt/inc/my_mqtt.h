@@ -27,6 +27,7 @@
 
 #include "mqtt_report.h"
 void mqtt_app_start(void);
+void mqtt_app_stop(void);
 void mqtt_send_message(const char *topic, const char *data);
 void mqtt_subscribe(const char *topic);
 void mqtt_unsubscribe(const char *topic);

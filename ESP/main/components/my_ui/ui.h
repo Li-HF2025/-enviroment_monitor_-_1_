@@ -29,6 +29,8 @@ extern "C" {
 #include "screens/ui_detailTemperature.h"
 #include "screens/ui_detialDB.h"
 #include "screens/ui_detialLight.h"
+#include "screens/ui_setting.h"
+#include "screens/ui_WIFIsetting.h"
 
 ///////////////////// VARIABLES ////////////////////
 

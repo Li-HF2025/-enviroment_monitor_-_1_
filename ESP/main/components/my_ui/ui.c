@@ -93,6 +93,8 @@ void ui_init(void)
     ui_detailTemperature_screen_init();
     ui_detialDB_screen_init();
     ui_detialLight_screen_init();
+    ui_setting_screen_init();
+    ui_WIFIsetting_screen_init();
     ui____initial_actions0 = lv_obj_create(NULL);
     lv_disp_load_scr(ui_ScreenLock);
 }
@@ -108,4 +110,6 @@ void ui_destroy(void)
     ui_detailTemperature_screen_destroy();
     ui_detialDB_screen_destroy();
     ui_detialLight_screen_destroy();
+    ui_setting_screen_destroy();
+    ui_WIFIsetting_screen_destroy();
 }

@@ -11,7 +11,7 @@ void app_main(void)
     uart_init();
     main_task_init();
     wifi_start();
-    mqtt_app_start();
+    // mqtt_app_start();
     screen_init();
 
     while (1) {

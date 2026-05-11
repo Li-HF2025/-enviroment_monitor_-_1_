@@ -36,7 +36,9 @@ static char s_onenet_cmd_topic[128];
 static char s_onenet_dp_post_topic[128];
 
 esp_mqtt_client_handle_t client = NULL; // 全局MQTT客户端句柄
+
 static bool s_mqtt_connected = false;
+static bool s_mqtt_started = false;
 
 static TaskHandle_t s_mqtt_report_task_handle = NULL;
 
@@ -200,9 +202,27 @@ static void mqtt_init(){
 }
 
 void mqtt_app_start(){
+    if (s_mqtt_started) return;
+    s_mqtt_started = true;
+
     ESP_LOGI("MQTT","MQTT应用开始");
     mqtt_report_init();
     mqtt_init();
+}
+void mqtt_app_stop(){
+    if (!s_mqtt_started) return;
+    s_mqtt_started = false;
+
+    ESP_LOGI("MQTT","MQTT应用停止");
+    if (client) {
+        esp_mqtt_client_stop(client);
+        esp_mqtt_client_destroy(client);
+        client = NULL;
+    }
+    if (s_mqtt_report_task_handle) {
+        vTaskDelete(s_mqtt_report_task_handle);
+        s_mqtt_report_task_handle = NULL;
+    }
 }
 
 void mqtt_send_message(const char *topic, const char *data){

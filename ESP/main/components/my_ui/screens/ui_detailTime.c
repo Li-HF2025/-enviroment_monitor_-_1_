@@ -82,8 +82,7 @@ void ui_event_DefaultTime(lv_event_t *e){
     if(event_code == LV_EVENT_CLICKED) {
         if(lv_obj_has_state(ui_DefaultTime, LV_STATE_CHECKED)){
             update_time_stop();
-        }
-        else{
+        }else{
             default_time_init();
             default_time_start();
             update_time_start();
@@ -156,7 +155,7 @@ void ui_detailTime_screen_init(void)
     lv_obj_set_align(ui_localTime, LV_ALIGN_CENTER);
     lv_textarea_set_placeholder_text(ui_localTime, "input your time");
     lv_obj_set_style_text_color(ui_localTime, lv_color_hex(0x808080), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_localTime, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_opa(ui_localTime, 25, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_backMain = lv_button_create(ui_detailTime);
     lv_obj_set_width(ui_backMain, 100);
