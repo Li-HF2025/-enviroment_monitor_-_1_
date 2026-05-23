@@ -946,40 +946,40 @@ pio device monitor         # 串口监控
 
 ```mermaid
 sequenceDiagram
-    participant APP as app_main (ESP32)
+    participant APP as app_main
     participant UART as my_serial
     participant WIFI as my_wifi
     participant SCR as my_screen
-    participant STM as STM32 (FreeRTOS)
+    participant STM as STM32 FreeRTOS
 
-    APP->>UART: uart_init() → 安装UART1驱动
+    APP->>UART: uart_init() 安装UART1驱动
     activate UART
     UART->>UART: 创建 uart_rx_task + uart_tx_task
-    UART-->>STM: uart_send_test() → 发送 CMD_TEST 帧
+    UART-->>STM: uart_send_test() 发送CMD_TEST帧
     deactivate UART
 
-    APP->>APP: main_task_init() → 创建协议分发任务
-    APP->>APP: my_nvs_init() → 初始化 NVS 闪存
+    APP->>APP: main_task_init() 创建协议分发任务
+    APP->>APP: my_nvs_init() 初始化NVS闪存
 
-    APP->>WIFI: wifi_start() → wifi_init_sta()
+    APP->>WIFI: wifi_start() 调用wifi_init_sta()
     activate WIFI
-    WIFI->>WIFI: 注册 wifi_event_handler + ip_event_handler
-    WIFI->>WIFI: esp_wifi_connect() → 连接已保存凭据
+    WIFI->>WIFI: 注册wifi_event_handler + ip_event_handler
+    WIFI->>WIFI: esp_wifi_connect() 连接已保存凭据
     deactivate WIFI
 
     APP->>SCR: screen_init()
     activate SCR
-    SCR->>SCR: SPI2 + ILI9341 初始化 → 背光点亮
-    SCR->>SCR: LVGL 初始化 + 双缓冲 DMA
-    SCR->>SCR: 创建 lvgl_port_task + 触摸驱动
-    SCR->>SCR: ui_init() → 创建所有界面对象
+    SCR->>SCR: SPI2+ILI9341初始化, 背光点亮
+    SCR->>SCR: LVGL初始化+双缓冲DMA
+    SCR->>SCR: 创建lvgl_port_task+触摸驱动
+    SCR->>SCR: ui_init() 创建所有界面对象
     deactivate SCR
 
-    Note over STM: 同步上电启动
-    STM->>STM: HAL + 时钟 + GPIO/DMA/ADC/UART 初始化
-    STM->>STM: 创建 uart_rx_task + uart_tx_task
-    STM->>STM: 创建 DHT22Task + DecibelTask + MainTask
-    STM->>STM: DHT22_Init() + DB_Init() → 传感器开始采集
+    Note over STM: STM32同步上电启动
+    STM->>STM: HAL+时钟+GPIO+DMA+ADC+UART初始化
+    STM->>STM: 创建uart_rx_task+uart_tx_task
+    STM->>STM: 创建DHT22Task+DecibelTask+MainTask
+    STM->>STM: DHT22_Init()+DB_Init() 传感器开始采集
 ```
 
 ### 二、Wi-Fi 连接 → MQTT 上线
@@ -994,30 +994,30 @@ sequenceDiagram
 
     UI->>WF: wifi_connect(ssid, password)
     activate WF
-    WF->>WF: esp_wifi_set_config() → 写入 SSID/密码
-    WF->>WF: esp_wifi_connect() → 发起连接
-    WF-->>WF: xEventGroupWaitBits(无限等待)
+    WF->>WF: esp_wifi_set_config() 写入SSID密码
+    WF->>WF: esp_wifi_connect() 发起连接
+    WF-->>WF: xEventGroupWaitBits 无限等待
     deactivate WF
 
-    Note over EV: 异步: IP_EVENT_STA_GOT_IP
+    Note over EV: IP_EVENT_STA_GOT_IP 异步触发
     EV-->>WF: ip_event_handler()
-    WF->>WF: s_retry_num = 0, 通知连接成功
+    WF->>WF: s_retry_num=0, 通知连接成功
 
     WF->>MQ: mqtt_app_start()
     activate MQ
-    MQ->>MQ: mqtt_init() → 创建 MQTT 客户端
-    MQ->>MQ: xTaskCreate(mqtt_report_task) → 周期上报
-    MQ->>CLD: esp_mqtt_client_start() → TCP 连接 OneNET
+    MQ->>MQ: mqtt_init() 创建MQTT客户端
+    MQ->>MQ: xTaskCreate mqtt_report_task 周期上报
+    MQ->>CLD: esp_mqtt_client_start() TCP连接OneNET
     deactivate MQ
 
     CLD-->>MQ: MQTT_EVENT_CONNECTED
     activate MQ
-    MQ->>CLD: subscribe(cmd/#, post/reply, property/set)
-    MQ->>CLD: mqtt_publish_all_report() → 全量属性上报
+    MQ->>CLD: subscribe cmd/#, post/reply, property/set
+    MQ->>CLD: mqtt_publish_all_report() 全量属性上报
     deactivate MQ
 
-    Note over WF: 断线重连: retry_num < 5 → esp_wifi_connect()
-    Note over WF: 超过 5 次 → xEventGroupSetBits(FAIL) + mqtt_app_stop()
+    Note over WF: 断线重连: retry小于5次则esp_wifi_connect()
+    Note over WF: 超过5次则报告FAIL并mqtt_app_stop()
 ```
 
 ### 三、传感器数据上行（分贝 / 温湿度）
@@ -1025,84 +1025,81 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant ADC as STM32 ADC/DHT22
-    participant STM as DecibelTask / DHT22Task
-    participant SER as mySerial (STM32)
-    participant UART as UART 总线
-    participant ESP as my_serial (ESP32)
+    participant STM as DecibelTask/DHT22Task
+    participant SER as mySerial STM32
+    participant UART as UART总线
+    participant ESP as my_serial ESP32
     participant MAIN as main_task
-    participant TASK as dB_task / temp_task
+    participant TASK as dB_task/temp_task
     participant UI as LVGL Timer
     participant MQ as mqtt_report_task
     participant CLD as OneNET
 
-    ADC-->>STM: DMA 半满/全满中断 或 DHT22 读取完成
+    ADC-->>STM: DMA半满全满中断 或 DHT22读取完成
     activate STM
-    STM->>STM: 求平均 → 滤波 → 平滑 → 物理量换算
+    STM->>STM: 求平均,滤波,平滑,物理量换算
     STM->>SER: msg_Response(cmd, payload)
     activate SER
-    SER->>SER: protocol_send_frame() → 构建二进制帧
+    SER->>SER: protocol_send_frame() 构建二进制帧
     SER->>UART: HAL_UART_Transmit()
     deactivate SER
     deactivate STM
 
     UART->>ESP: 逐字节接收
     activate ESP
-    ESP->>ESP: 14 状态机解析 → 校验通过
+    ESP->>ESP: 14状态机解析,校验通过
     ESP->>MAIN: xQueueSend(main_queue)
     deactivate ESP
 
     activate MAIN
-    MAIN->>MAIN: 按 cmd 分发 (DB→dB_queue, TEMPERATURE→temp_queue)
+    MAIN->>MAIN: 按cmd分发 DB到dB_queue TEMP到temp_queue
     MAIN->>TASK: xQueueSend
     deactivate MAIN
 
     activate TASK
-    TASK->>TASK: 解析 payload → 更新缓存值
-    TASK->>MQ: mqtt_report_set_*() + request_publish()
+    TASK->>TASK: 解析payload,更新缓存值
+    TASK->>MQ: mqtt_report_set + request_publish
     deactivate TASK
 
-    Note over UI,CLD: 两条并行通路
-    par UI 更新
-        UI->>UI: 每 100ms 轮询 get_latest_value()
-        UI->>UI: lv_label_set_text() → 屏幕刷新
-    and MQTT 上报
-        MQ->>MQ: 被 notify 唤醒 或 30s 周期到期
-        MQ->>MQ: mqtt_publish_all_report() → 拼接 JSON
-        MQ->>CLD: esp_mqtt_client_publish()
-    end
+    Note over UI,CLD: 两条并行通路 - UI刷新 + MQTT上报
+    UI->>UI: 每100ms轮询get_latest_value()
+    UI->>UI: lv_label_set_text() 屏幕刷新
+    MQ->>MQ: 被notify唤醒或30s周期到期
+    MQ->>MQ: mqtt_publish_all_report() 拼接JSON
+    MQ->>CLD: esp_mqtt_client_publish()
 ```
 
-### 四、命令下发（ESP32 → STM32）
+### 四、命令下发 ESP32 → STM32
 
 ```mermaid
 sequenceDiagram
-    participant UI as UI 事件
-    participant SER as my_serial (ESP32)
-    participant UART as UART 总线
-    participant STM as mySerial (STM32)
-    participant MAIN as main_task (STM32)
+    participant UI as UI事件
+    participant SER as my_serial ESP32
+    participant UART as UART总线
+    participant STM as mySerial STM32
+    participant MAIN as main_task STM32
     participant HW as 传感器硬件
 
     UI->>SER: msg_Request(CMD_DB, "DB Init")
     activate SER
-    SER->>SER: 组装帧: SOF + Ver + REQUEST + CMD_DB + Seq + Len + Payload + Checksum + EOF
+    SER->>SER: 组装帧 SOF+Ver+REQUEST+CMD_DB+Seq+Len+Payload+Checksum+EOF
     SER->>UART: uart_write_bytes()
     deactivate SER
 
-    UART-->>STM: UART RX 中断逐字节接收
+    UART-->>STM: UART RX中断逐字节接收
     activate STM
-    STM->>STM: 14 状态机解析 → 校验通过
+    STM->>STM: 14状态机解析,校验通过
     STM->>MAIN: osMessageQueuePut(main_queue)
     deactivate STM
 
     activate MAIN
-    MAIN->>MAIN: strcmp(payload, "DB Init") → 匹配子命令
-    MAIN->>HW: DB_Init() → HAL_ADC_Start_DMA()
+    MAIN->>MAIN: strcmp(payload,"DB Init")匹配子命令
+    MAIN->>HW: DB_Init() 启动HAL_ADC_Start_DMA
     MAIN->>SER: msg_Report("DB Init OK")
     deactivate MAIN
 
     activate SER
-    SER->>UART: protocol_send_frame() → 响应帧回传
+    SER->>UART: protocol_send_frame() 响应帧回传
     deactivate SER
 ```
 
@@ -1116,14 +1113,14 @@ sequenceDiagram
     participant TASK as ota_task
     participant HW as Flash
 
-    UI->>UI: 点击 "updates" 按钮
-    UI->>UI: esp_wifi_sta_get_ap_info() → 确认 Wi-Fi 已连接
+    UI->>UI: 点击updates按钮
+    UI->>UI: 确认Wi-Fi已连接
     UI->>OTA: onenet_ota_upload_version()
     activate OTA
-    OTA->>OTA: get_app_verion() → 当前版本号
-    OTA->>OTA: dev_token_generate() → HMAC-SHA256 token
-    OTA->>SRV: HTTP POST /version (JSON: {s_version, f_version})
-    SRV-->>OTA: code=0 → 上报成功
+    OTA->>OTA: get_app_verion() 当前版本号
+    OTA->>OTA: dev_token_generate() HMAC-SHA256 token
+    OTA->>SRV: HTTP POST /version
+    SRV-->>OTA: code=0 上报成功
     deactivate OTA
 
     Note over UI: [待补完] 查询升级任务
@@ -1132,13 +1129,13 @@ sequenceDiagram
 
     OTA->>TASK: xTaskCreate(ota_task)
     activate TASK
-    TASK->>TASK: esp_https_ota_begin() → 初始化 OTA 分区
-    TASK->>TASK: validate_image_header() → 版本比对
+    TASK->>TASK: esp_https_ota_begin() 初始化OTA分区
+    TASK->>TASK: validate_image_header() 版本比对
     loop 分块下载
-        TASK->>SRV: HTTPS 固件下载
+        TASK->>SRV: HTTPS固件下载
         SRV-->>TASK: 固件数据块
     end
-    TASK->>TASK: esp_https_ota_finish() → 校验写入
-    TASK->>HW: esp_restart() → 重启进入新固件
+    TASK->>TASK: esp_https_ota_finish() 校验写入
+    TASK->>HW: esp_restart() 重启进入新固件
     deactivate TASK
 ```
