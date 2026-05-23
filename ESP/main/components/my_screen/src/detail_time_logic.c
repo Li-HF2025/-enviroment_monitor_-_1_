@@ -26,17 +26,27 @@ static void time_update_callback(lv_timer_t* timer){
     struct tm * timeinfo = localtime(&now);
     char date_str[16];
     strftime(date_str, sizeof(date_str), "%Y-%m-%d", timeinfo);
-    lv_label_set_text(ui_yearMonDay, date_str);
+    if (ui_yearMonDay != NULL) {
+        lv_label_set_text(ui_yearMonDay, date_str);
+    }
     char time_str[16];
     strftime(time_str, sizeof(time_str), "%H:%M:%S", timeinfo);
-    lv_label_set_text(ui_hour, time_str);
-    lv_label_set_text(ui_Label1, time_str);
+    if (ui_hour != NULL) {
+        lv_label_set_text(ui_hour, time_str);
+    }
+    if (ui_Label1 != NULL) {
+        lv_label_set_text(ui_Label1, time_str);
+    }
     char week_num_str[4];
     snprintf(week_num_str, sizeof(week_num_str), "%d", timeinfo->tm_wday);
-    lv_label_set_text(ui_Label3, week_num_str);
+    if (ui_Label3 != NULL) {
+        lv_label_set_text(ui_Label3, week_num_str);
+    }
     char datetime_str[32];
     snprintf(datetime_str, sizeof(datetime_str), "%s,%s", date_str, time_str);
-    lv_textarea_set_text(ui_localTime, datetime_str);
+    if (ui_localTime != NULL) {
+        lv_textarea_set_text(ui_localTime, datetime_str);
+    }
 }
 static void time_sync_notification_cb(struct timeval *tv)
 {
@@ -69,7 +79,10 @@ static void sntp_init_custom(void){
     esp_sntp_init();
 }
 void default_time_init(void){
-    time_update_callback(NULL);
+    /* 只在界面对象已创建时执行一次更新，避免在未创建界面时访问 NULL 指针 */
+    if (ui_yearMonDay != NULL || ui_hour != NULL || ui_Label1 != NULL || ui_Label3 != NULL || ui_localTime != NULL) {
+        time_update_callback(NULL);
+    }
 }
 
 void default_time_start(void){

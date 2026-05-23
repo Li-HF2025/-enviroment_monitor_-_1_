@@ -1,0 +1,13 @@
+menu "OTA Configuration"
+    config OTA_ENABLE
+        bool "Enable OTA"
+        default y
+        help
+            是否启用OTA功能。启用后，设备将自动进行OTA升级。
+    config OTA_URL
+        string "OTA Server URL"
+        default ""
+        help 
+            OTA服务器URL，必须包含协议头。
+    
+endmenu

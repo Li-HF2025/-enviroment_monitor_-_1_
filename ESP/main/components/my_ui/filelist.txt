@@ -7,6 +7,7 @@ screens/ui_main02.c
 screens/ui_main03.c
 screens/ui_main04.c
 screens/ui_detailTime.c
+screens/ui_detailOTA.c
 screens/ui_detailTemperature.c
 screens/ui_detialDB.c
 screens/ui_detialLight.c

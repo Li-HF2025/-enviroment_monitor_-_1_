@@ -9,7 +9,8 @@ lv_obj_t * ui_setting = NULL;
 lv_obj_t * ui_WIFI = NULL;
 lv_obj_t * ui_Label5 = NULL;
 lv_obj_t * ui_WIFISwitch = NULL;
-
+lv_obj_t * ui_OTA = NULL;
+lv_obj_t * ui_Label06 = NULL;
 static TaskHandle_t s_wifi_scan_task = NULL;
 void ui_wifi_scan_task_clear_handle(void)
 {
@@ -52,6 +53,15 @@ void ui_event_WIFISwitch(lv_event_t * e)
     }
 }
 
+void ui_event_OTA(lv_event_t * e)
+{
+    lv_event_code_t event_code = lv_event_get_code(e);
+
+    if(event_code == LV_EVENT_CLICKED) {
+        _ui_screen_change(&ui_detailOTA, LV_SCR_LOAD_ANIM_NONE, 250, 0, &ui_detailOTA_screen_init);
+    }
+}
+
 // build funtions
 
 void ui_setting_screen_init(void)
@@ -87,8 +97,25 @@ void ui_setting_screen_init(void)
     lv_obj_set_state(ui_WIFISwitch, LV_STATE_CHECKED, true);
     lv_obj_set_ext_click_area(ui_WIFISwitch, 5);
 
+
+    ui_OTA = lv_obj_create(ui_setting);
+    lv_obj_set_width(ui_OTA, 230);
+    lv_obj_set_height(ui_OTA, 40);
+    lv_obj_set_x(ui_OTA, 5);
+    lv_obj_set_y(ui_OTA, 50);
+    lv_obj_remove_flag(ui_OTA, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
+
+    ui_Label06 = lv_label_create(ui_setting);
+    lv_obj_set_width(ui_Label06, LV_SIZE_CONTENT);   /// 1
+    lv_obj_set_height(ui_Label06, LV_SIZE_CONTENT);    /// 1
+    lv_obj_set_x(ui_Label06, 20);
+    lv_obj_set_y(ui_Label06, 60);
+    lv_label_set_text(ui_Label06, "    check version   ");
+    lv_obj_set_style_text_font(ui_Label06, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+
     lv_obj_add_event_cb(ui_Label5, ui_event_Label5, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_WIFISwitch, ui_event_WIFISwitch, LV_EVENT_ALL, NULL);
+    lv_obj_add_event_cb(ui_OTA, ui_event_OTA, LV_EVENT_ALL, NULL);
     lv_obj_add_event_cb(ui_setting, ui_event_setting, LV_EVENT_ALL, NULL);
 
 }
@@ -100,7 +127,9 @@ void ui_setting_screen_destroy(void)
     // NULL screen variables
     ui_setting = NULL;
     ui_WIFI = NULL;
+    ui_OTA = NULL;
     ui_Label5 = NULL;
+    ui_Label06 = NULL;
     ui_WIFISwitch = NULL;
 
 }

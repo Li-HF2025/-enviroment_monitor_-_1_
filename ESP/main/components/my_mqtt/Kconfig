@@ -25,6 +25,12 @@ menu "My MQTT Configuration"
         help
             必填：使用设备key按ONENET规则计算得到的token。
 
+    config ONENET_ACCESS_KEY
+        string "ONENET Access Key"
+        default ""
+        help
+            选填：设备key。仅在使用SDK计算token时需要提供。
+
     config ONENET_HEARTBEAT_PAYLOAD
         string "ONENET First Heartbeat Payload"
         default ""

@@ -1,5 +1,7 @@
 #include "my_wifi.h"
 #include "my_mqtt.h"
+#include "my_ota.h"
+#include "my_nvs.h"
 #include <string.h>
 #include "detail_time_logic.h"
 #ifdef CONFIG_MY_WIFI_SSID
@@ -30,11 +32,14 @@
 #define WIFI_CONNECTED_BIT BIT(0)
 #define WIFI_FAIL_BIT BIT(1)
 
+#define NVS_KEY_WIFI_SSID "wifi_ssid"
+#define NVS_KEY_WIFI_PASS "wifi_pass"
 
 static EventGroupHandle_t wifi_event_group;
 
 static uint8_t s_retry_num = 0;
 static bool s_user_disconnect = false;
+static bool s_manual_connecting = false;
 
 /**
  * @brief Wi-Fi事件处理程序
@@ -43,7 +48,7 @@ static void wifi_event_handler(void* arg,esp_event_base_t event_base
                             ,int32_t event_id, void* event_data){
     if(event_base == WIFI_EVENT){
         if(event_id == WIFI_EVENT_STA_START){
-            if(strlen(ESP_WIFI_SSID) > 0 && strlen(ESP_WIFI_PASS) > 0){
+            if(!s_manual_connecting && strlen(ESP_WIFI_SSID) > 0 && strlen(ESP_WIFI_PASS) > 0){
                 esp_wifi_connect();// 只有配置了默认账号时才自动连接
             }
         }else if(event_id == WIFI_EVENT_STA_DISCONNECTED){
@@ -89,9 +94,21 @@ void wifi_disconnect(void){
 }
 
 bool wifi_connect(const char* ssid, const char* password){
-    s_user_disconnect = false;
+    s_user_disconnect = true;
+    s_manual_connecting = true;
     s_retry_num = 0;
     xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT | WIFI_FAIL_BIT);
+
+    esp_err_t err = esp_wifi_disconnect();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
+        ESP_LOGW("WIFI连接", "esp_wifi_disconnect 返回 %s", esp_err_to_name(err));
+    }
+
+    err = esp_wifi_stop();
+    if (err != ESP_OK && err != ESP_ERR_WIFI_NOT_STARTED) {
+        ESP_LOGW("WIFI连接", "esp_wifi_stop 返回 %s", esp_err_to_name(err));
+    }
+
     wifi_config_t wifi_config = {
         .sta = {
             .ssid = "",
@@ -105,7 +122,10 @@ bool wifi_connect(const char* ssid, const char* password){
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    ESP_ERROR_CHECK(esp_wifi_start());
     ESP_ERROR_CHECK(esp_wifi_connect());
+    s_manual_connecting = false;
+    s_user_disconnect = false;
     ESP_LOGI("WIFI连接", "正在连接到AP SSID:%s", ssid);
         EventBits_t bits = xEventGroupWaitBits(wifi_event_group,
         WIFI_CONNECTED_BIT | WIFI_FAIL_BIT, 
@@ -115,10 +135,8 @@ bool wifi_connect(const char* ssid, const char* password){
     if(bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI("WIFI连接", "成功连接到AP SSID:%s", ESP_WIFI_SSID);
         s_user_disconnect = false;
-        update_time_stop(); // 连接成功后先停止时间更新，避免时间显示异常
-        default_time_init(); // 初始化时间系统
-        default_time_start(); // 连接成功后启动时间同步
-        update_time_start(); // 启动时间更新
+        my_nvs_set_value(NVS_KEY_WIFI_SSID, ssid);
+        my_nvs_set_value(NVS_KEY_WIFI_PASS, password);
         return true;
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI("WIFI连接", "连接AP失败 SSID:%s", ESP_WIFI_SSID);
@@ -159,15 +177,7 @@ static void wifi_init_sta(void){
 }
 
 
-
 void wifi_start(){
-    esp_err_t ret = nvs_flash_init();//初始化闪存
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());//擦除闪存
-        ret = nvs_flash_init();//重新初始化闪存
-    }
-    ESP_ERROR_CHECK(ret);//检查闪存初始化结果
-
     if (CONFIG_LOG_MAXIMUM_LEVEL > CONFIG_LOG_DEFAULT_LEVEL) {
         esp_log_level_set("wifi", CONFIG_LOG_MAXIMUM_LEVEL);//设置Wi-Fi组件的日志级别（根据配置文件）
     }

@@ -27,6 +27,7 @@ extern "C" {
 #include "screens/ui_main04.h"
 #include "screens/ui_detailTime.h"
 #include "screens/ui_detailTemperature.h"
+#include "screens/ui_detailOTA.h"
 #include "screens/ui_detialDB.h"
 #include "screens/ui_detialLight.h"
 #include "screens/ui_setting.h"
