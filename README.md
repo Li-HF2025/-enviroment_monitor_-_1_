@@ -938,564 +938,207 @@ pio device monitor         # 串口监控
 
 ---
 
-## 函数调用与运行流程
+## 核心运行流程
 
-> 以下使用 `→` 表示同步函数调用，`⇒` 表示跨任务的消息传递（队列/任务通知），`-->>` 表示硬件中断触发。
+> 以下用时序图展示系统关键流程，`->>` 表示同步调用/消息传递，`-->>` 表示异步事件/中断。
 
-### 一、系统启动流程
+### 一、系统启动
 
-#### ESP32-S3 启动（`app_main` → 各组件就绪）
+```mermaid
+sequenceDiagram
+    participant APP as app_main (ESP32)
+    participant UART as my_serial
+    participant WIFI as my_wifi
+    participant SCR as my_screen
+    participant STM as STM32 (FreeRTOS)
 
-```
-main.c: app_main()
-│
-├── uart_init()                                    [my_serial.c]
-│   ├── uart_param_config()                        ESP-IDF: 配置波特率/数据位/停止位
-│   ├── uart_set_pin()                             ESP-IDF: 绑定 GPIO16(RX)/17(TX)
-│   ├── uart_driver_install()                      ESP-IDF: 安装驱动 + 创建 uart_rx_queue
-│   ├── xQueueCreate() → uart_tx_queue             FreeRTOS: 发送队列(5项)
-│   ├── xTaskCreate(uart_rx_task, configMAX-1)     uart_rx_task 开始运行，阻塞在 uart_rx_queue
-│   ├── xTaskCreate(uart_tx_task, configMAX-2)     uart_tx_task 开始运行，阻塞在 uart_tx_queue
-│   └── uart_send_test()                           发送 CMD_TEST 请求帧到 STM32
-│
-├── main_task_init()                               [mian_task.c]
-│   ├── xQueueCreate() → main_queue                FreeRTOS: 主分发队列(20项)
-│   └── xTaskCreate(mian_task, 10)                 main_task 开始运行，阻塞在 main_queue
-│
-├── my_nvs_init()                                  [my_nvs.c]
-│   ├── nvs_flash_init()                           ESP-IDF: 初始化 NVS 子系统
-│   └── nvs_open("storage", READWRITE)             打开命名空间 → g_nvs_handle
-│
-├── wifi_start()                                   [my_wifi.c]
-│   └── wifi_init_sta()
-│       ├── xEventGroupCreate() → wifi_event_group 同步事件组
-│       ├── esp_netif_init()                       TCP/IP 协议栈初始化
-│       ├── esp_event_loop_create_default()        默认事件循环
-│       ├── esp_netif_create_default_wifi_sta()    创建 STA 网络接口
-│       ├── esp_wifi_init()                        Wi-Fi 驱动初始化
-│       ├── esp_event_handler_instance_register()  注册 wifi_event_handler + ip_event_handler
-│       ├── esp_wifi_set_mode(STA)                 设为 STA 模式
-│       ├── esp_wifi_start()                       启动 Wi-Fi 驱动
-│       │     └── 触发 WIFI_EVENT_STA_START
-│       │           └── wifi_event_handler()
-│       │                 └── esp_wifi_connect()    开始连接(若有凭据)
-│       └── wifi_connect(SSID, PASS)               或手动连接(若配置了凭据)
-│             ├── esp_wifi_set_config()             写入 SSID/密码
-│             ├── esp_wifi_start() + esp_wifi_connect()
-│             └── xEventGroupWaitBits()             阻塞等待连接结果
-│                   ├── 成功 → my_nvs_set_value()  保存凭据到 NVS
-│                   └── 失败 → 返回 false
-│
-└── screen_init()                                  [my_screen.c]
-    ├── gpio_config()                              背光引脚(GPIO10)输出
-    ├── spi_bus_initialize(SPI2_HOST)              SPI2 总线初始化(20MHz)
-    ├── esp_lcd_new_panel_io_spi() → io_handle     LCD IO 句柄(绑定 DC=5, CS=4)
-    ├── esp_lcd_new_panel_ili9341() → panel_handle LCD 面板句柄
-    ├── esp_lcd_panel_reset() + init()             ILI9341 复位 + 初始化
-    ├── esp_lcd_panel_mirror(true, false)          水平镜像(适应安装方向)
-    ├── gpio_set_level(背光, ON)                    点亮背光
-    ├── lv_init()                                  LVGL 库初始化
-    ├── lv_display_create(240, 320)                创建 display 对象
-    ├── spi_bus_dma_memory_alloc() × 2             分配双缓冲(各19.2KB)
-    ├── lv_display_set_buffers()                   绑定局部刷新双缓冲
-    ├── lv_display_set_flush_cb(lcd_flush_cb)      注册刷新回调
-    ├── esp_timer_create() → lvgl_tick_timer       创建 2ms 定时器 → lvgl_tick_task()
-    │                                                └── lv_tick_inc(2) 驱动 LVGL 时间基准
-    ├── esp_lcd_panel_io_register_event_callbacks() 注册帧传输完成回调
-    │                                                └── notify_lvgl_flush_ready()
-    │                                                      └── lv_display_flush_ready()
-    ├── [触摸] esp_lcd_new_panel_io_spi()          触摸 SPI IO(独立 CS=11)
-    ├── [触摸] esp_lcd_touch_new_spi_xpt2046()     创建触摸句柄
-    ├── [触摸] lv_indev_create() + set_read_cb()   注册触摸读取回调 touch_read_cb()
-    ├── xTaskCreate(lvgl_port_task, 5)             LVGL 渲染任务开始运行
-    │     └── while(1):
-    │           _lock_acquire(&lvgl_api_lock)
-    │           lv_timer_handler()                 处理 LVGL 定时器 + 动画 + 重绘
-    │           screen_idle_lock_poll()            检查空闲是否超时 → 自动锁屏
-    │           _lock_release(&lvgl_api_lock)
-    │           usleep(5~500ms)                    释放 CPU
-    ├── _lock_acquire(&lvgl_api_lock)              获取 LVGL 锁
-    ├── ui_init()                                  遍历所有界面调用 screen_init()
-    │     ├── ui_main01_screen_init()              创建主界面所有 LVGL 对象
-    │     ├── ui_main02_screen_init()              ...
-    │     └── ...                                  但 lv_scr_load 只显示第一个
-    └── screen_idle_lock_init(5×60×1000)           初始化空闲锁(5分钟超时)
+    APP->>UART: uart_init() → 安装UART1驱动
+    activate UART
+    UART->>UART: 创建 uart_rx_task + uart_tx_task
+    UART-->>STM: uart_send_test() → 发送 CMD_TEST 帧
+    deactivate UART
+
+    APP->>APP: main_task_init() → 创建协议分发任务
+    APP->>APP: my_nvs_init() → 初始化 NVS 闪存
+
+    APP->>WIFI: wifi_start() → wifi_init_sta()
+    activate WIFI
+    WIFI->>WIFI: 注册 wifi_event_handler + ip_event_handler
+    WIFI->>WIFI: esp_wifi_connect() → 连接已保存凭据
+    deactivate WIFI
+
+    APP->>SCR: screen_init()
+    activate SCR
+    SCR->>SCR: SPI2 + ILI9341 初始化 → 背光点亮
+    SCR->>SCR: LVGL 初始化 + 双缓冲 DMA
+    SCR->>SCR: 创建 lvgl_port_task + 触摸驱动
+    SCR->>SCR: ui_init() → 创建所有界面对象
+    deactivate SCR
+
+    Note over STM: 同步上电启动
+    STM->>STM: HAL + 时钟 + GPIO/DMA/ADC/UART 初始化
+    STM->>STM: 创建 uart_rx_task + uart_tx_task
+    STM->>STM: 创建 DHT22Task + DecibelTask + MainTask
+    STM->>STM: DHT22_Init() + DB_Init() → 传感器开始采集
 ```
 
-#### STM32F103C8T6 启动（`main` → FreeRTOS 就绪）
+### 二、Wi-Fi 连接 → MQTT 上线
 
-```
-main.c: main()
-├── HAL_Init()
-├── SystemClock_Config()                           配置 72MHz, APB1=36MHz, APB2=72MHz
-├── MX_GPIO_Init()
-├── MX_DMA_Init()                                  DMA1 初始化
-├── MX_ADC1_Init()                                 ADC1 初始化(PB1, IN9)
-├── MX_I2C1_Init()                                 I2C1 初始化(PB6/PB7, OLED用)
-├── MX_USART1_UART_Init()                          USART1 初始化(PA9/PA10, 115200)
-├── osKernelInitialize()
-└── MX_FREERTOS_Init()                             [freertos.c]
-    ├── osThreadNew(StartDefaultTask)              空循环任务(Normal 优先级)
-    ├── OLED_Init()                                SSD1306 I2C 显示初始化
-    ├── mySerial_RTOS_Init()                       [mySerial.c]
-    │   ├── osMessageQueueNew() → uart_rx_queue    接收队列(128字节)
-    │   ├── osMessageQueueNew() → uart_tx_queue    发送队列(4项)
-    │   ├── osThreadNew(uart_rx_task, High)        uart_rx_task 开始运行
-    │   └── osThreadNew(uart_tx_task, AboveNormal) uart_tx_task 开始运行
-    ├── mySerial_init()                            发送 "Serial Init OK" 上报帧
-    │   └── HAL_UART_Receive_IT(&huart1, &s_rx_byte, 1)  使能 UART 中断接收
-    ├── DHT22_RTOS_Init()                          [temperature.c]
-    │   ├── DWT 初始化(使能 CYCCNT, 计算 μs/ticks)
-    │   └── osThreadNew(DHT22_Task, AboveNormal)   DHT22Task 开始运行
-    │         └── while(1):
-    │               if(!g_dht22_enabled) osDelay(200); continue  等待使能信号
-    │               DHT22_Read() → DHT22_Send_Report()            读取+上报
-    │               osDelay(2000)
-    ├── DHT22_Init()                                g_dht22_enabled = true (当前无条件启动)
-    ├── DB_RTOS_Init()                             [db.c]
-    │   └── osThreadNew(StartDecibelTask, AboveNormal)  Decibel 任务开始运行
-    │         └── while(1):
-    │               osThreadFlagsWait(HALF|FULL)   阻塞等待 DMA 半满/全满通知
-    │               求平均 → DB_Filter() → calculate_db() → 指数平滑
-    │               msg_Response(CMD_DB, report_str)
-    ├── DB_Init()                                   HAL_ADC_Start_DMA() (当前无条件启动)
-    └── main_task_RTOS_Init()                      [main_task.c]
-        ├── osMessageQueueNew() → main_queue        主命令队列(4项)
-        └── osThreadNew(main_task, AboveNormal)     MainTask 开始运行
-              └── while(1):
-                    osMessageQueueGet(main_queue)   阻塞等待命令
-                    if(REQUEST) → 解析子命令 → 控制传感器
+```mermaid
+sequenceDiagram
+    participant UI as ui_WIFIsetting
+    participant WF as my_wifi
+    participant MQ as my_mqtt
+    participant EV as ESP Event Loop
+    participant CLD as OneNET Cloud
+
+    UI->>WF: wifi_connect(ssid, password)
+    activate WF
+    WF->>WF: esp_wifi_set_config() → 写入 SSID/密码
+    WF->>WF: esp_wifi_connect() → 发起连接
+    WF-->>WF: xEventGroupWaitBits(无限等待)
+    deactivate WF
+
+    Note over EV: 异步: IP_EVENT_STA_GOT_IP
+    EV-->>WF: ip_event_handler()
+    WF->>WF: s_retry_num = 0, 通知连接成功
+
+    WF->>MQ: mqtt_app_start()
+    activate MQ
+    MQ->>MQ: mqtt_init() → 创建 MQTT 客户端
+    MQ->>MQ: xTaskCreate(mqtt_report_task) → 周期上报
+    MQ->>CLD: esp_mqtt_client_start() → TCP 连接 OneNET
+    deactivate MQ
+
+    CLD-->>MQ: MQTT_EVENT_CONNECTED
+    activate MQ
+    MQ->>CLD: subscribe(cmd/#, post/reply, property/set)
+    MQ->>CLD: mqtt_publish_all_report() → 全量属性上报
+    deactivate MQ
+
+    Note over WF: 断线重连: retry_num < 5 → esp_wifi_connect()
+    Note over WF: 超过 5 次 → xEventGroupSetBits(FAIL) + mqtt_app_stop()
 ```
 
-### 二、Wi-Fi 连接与 MQTT 启动流程
+### 三、传感器数据上行（分贝 / 温湿度）
 
-```
-用户点击 Wi-Fi 设置界面的连接按钮
-│
-├── ui_event_WIFIConnect()                         [ui_WIFIsetting.c]
-│   ├── lv_dropdown_get_selected_str()             获取选择的 SSID
-│   ├── lv_textarea_get_text()                     获取输入的密码
-│   └── wifi_connect(ssid, password)               [my_wifi.c]
-│         ├── s_user_disconnect = true              标记状态
-│         ├── s_manual_connecting = true
-│         ├── esp_wifi_disconnect() + esp_wifi_stop() 断开当前连接
-│         ├── esp_wifi_set_mode(STA)
-│         ├── esp_wifi_set_config()                 写入新 SSID/密码
-│         ├── esp_wifi_start()
-│         ├── esp_wifi_connect()                    发起连接
-│         ├── s_manual_connecting = false
-│         └── xEventGroupWaitBits(CONNECTED|FAIL, 无限等待)
-│               │
-│               ├── [CONNECTED 路径]
-│               │     └── my_nvs_set_value("wifi_ssid", ssid)   持久化凭据
-│               │         my_nvs_set_value("wifi_pass", password)
-│               │
-│               └── [FAIL 路径]
-│                     └── return false → UI 显示错误
-│
-Wi-Fi 底层异步事件(在 WiFi 驱动任务中):
-│
-├── IP_EVENT_STA_GOT_IP
-│   └── ip_event_handler()                         [my_wifi.c]
-│         ├── s_retry_num = 0                       重置重试计数
-│         ├── xEventGroupSetBits(CONNECTED_BIT)     通知 wifi_connect() 解除阻塞
-│         └── mqtt_app_start()                      [my_mqtt.c] ← 直接耦合,待改为事件
-│               ├── mqtt_report_init()               初始化属性上报注册表 + 互斥锁
-│               ├── mqtt_init()
-│               │   ├── snprintf() → 拼接 clientId/主题字符串
-│               │   ├── esp_mqtt_client_init()       创建 MQTT 客户端
-│               │   ├── esp_mqtt_client_register_event()  注册 mqtt_event_handler
-│               │   ├── esp_mqtt_client_start()      启动 MQTT 连接
-│               │   └── xTaskCreate(mqtt_report_task)  创建周期上报任务
-│               │         └── while(1):
-│               │               ulTaskNotifyTake(30s超时)  等待通知或超时
-│               │               mqtt_publish_all_report()  构建 JSON → mqtt_send_message()
-│               │
-│               └── [MQTT_EVENT_CONNECTED 回调]
-│                     └── mqtt_event_handler()
-│                           ├── s_mqtt_connected = true
-│                           ├── esp_mqtt_client_subscribe(cmd/#)    订阅命令
-│                           ├── esp_mqtt_client_subscribe(post/reply)  订阅回执
-│                           ├── esp_mqtt_client_subscribe(property/set)  订阅属性设置
-│                           └── mqtt_publish_all_report()  首次全量上报
-│
-└── [断线重连]
-      └── WIFI_EVENT_STA_DISCONNECTED
-            └── wifi_event_handler()
-                  ├── [自动模式] s_retry_num < 5 → esp_wifi_connect() 重试
-                  ├── [手动断开] s_user_disconnect=true → 不重连
-                  └── [超过重试] xEventGroupSetBits(FAIL_BIT) + mqtt_app_stop()
+```mermaid
+sequenceDiagram
+    participant ADC as STM32 ADC/DHT22
+    participant STM as DecibelTask / DHT22Task
+    participant SER as mySerial (STM32)
+    participant UART as UART 总线
+    participant ESP as my_serial (ESP32)
+    participant MAIN as main_task
+    participant TASK as dB_task / temp_task
+    participant UI as LVGL Timer
+    participant MQ as mqtt_report_task
+    participant CLD as OneNET
+
+    ADC-->>STM: DMA 半满/全满中断 或 DHT22 读取完成
+    activate STM
+    STM->>STM: 求平均 → 滤波 → 平滑 → 物理量换算
+    STM->>SER: msg_Response(cmd, payload)
+    activate SER
+    SER->>SER: protocol_send_frame() → 构建二进制帧
+    SER->>UART: HAL_UART_Transmit()
+    deactivate SER
+    deactivate STM
+
+    UART->>ESP: 逐字节接收
+    activate ESP
+    ESP->>ESP: 14 状态机解析 → 校验通过
+    ESP->>MAIN: xQueueSend(main_queue)
+    deactivate ESP
+
+    activate MAIN
+    MAIN->>MAIN: 按 cmd 分发 (DB→dB_queue, TEMPERATURE→temp_queue)
+    MAIN->>TASK: xQueueSend
+    deactivate MAIN
+
+    activate TASK
+    TASK->>TASK: 解析 payload → 更新缓存值
+    TASK->>MQ: mqtt_report_set_*() + request_publish()
+    deactivate TASK
+
+    Note over UI,CLD: 两条并行通路
+    par UI 更新
+        UI->>UI: 每 100ms 轮询 get_latest_value()
+        UI->>UI: lv_label_set_text() → 屏幕刷新
+    and MQTT 上报
+        MQ->>MQ: 被 notify 唤醒 或 30s 周期到期
+        MQ->>MQ: mqtt_publish_all_report() → 拼接 JSON
+        MQ->>CLD: esp_mqtt_client_publish()
+    end
 ```
 
-### 三、分贝数据上行完整流程
+### 四、命令下发（ESP32 → STM32）
 
-```
-硬件层 (STM32):
-  PB1 → ADC1_IN9 → ADC 采样
-    │
-    └── DMA1_Channel1 循环搬运(50点)  --硬件自动-->
-        │
-        ├── [25点完成] --中断--> HAL_ADC_ConvHalfCpltCallback()  [db.c]
-        │     └── osThreadFlagsSet(decibelTaskHandle, DB_FLAG_HALF)
-        │
-        └── [50点完成] --中断--> HAL_ADC_ConvCpltCallback()
-              └── osThreadFlagsSet(decibelTaskHandle, DB_FLAG_FULL)
-                    │
-                    ▼
-              StartDecibelTask()  被 osThreadFlagsWait 唤醒  [db.c]
-                │
-                ├── 确定半区(target_buf = buf[0..24] 或 buf[25..49])
-                ├── 半区 25 点求平均 → avg_adc
-                ├── DB_Filter(&avg_adc)                    移动平均滤波(窗口5)
-                │     └── filter_buf[idx] = avg_adc → sum/5
-                ├── calculate_db(filtered)                  线性映射
-                │     └── ratio = (adc-200)/(3000-200) → dB = ratio×180
-                ├── db_smooth = db_smooth*0.8 + dB*0.2     指数平滑
-                ├── snprintf(report_str, "%u.%u", whole, frac)  值→字符串
-                └── msg_Response(CMD_DB, report_str, strlen)  [mySerial.c]
-                      │
-                      ▼
-                protocol_send_frame(RESPONSE, CMD_DB, seq, payload, len)
-                  ├── 构建帧: SOF + Ver + Type + Cmd + Seq + Len + Payload + Checksum + EOF
-                  └── HAL_UART_Transmit(&huart1, frame, idx)  --UART TX→
-                                                                      │
-── 板间 UART 传输 ───────────────────────────────────────────────────────│──
-                                                                      │
-                                                                      ▼
-ESP32 接收:
-  UART1 RX(GPIO16) --硬件接收→                                [my_serial.c]
-    │
-    └── uart_event_task 收到 UART_DATA 事件
-          ├── uart_read_bytes() 批量读取(最多128字节)
-          └── 逐字节喂入 14 状态状态机
-                │
-                ├── RX_WAIT_SOF1 → [0x55] → SOF2 → [0xAA] → READ_VER → ...
-                ├── ... → RX_READ_CRC_H → [校验计算]
-                ├── [校验通过] → RX_READ_EOF1 → [0x0D] → EOF2 → [0x0A]
-                │     │
-                │     └── 组装 UartTxItem → xQueueSend(main_queue, &item)
-                │                                                      │
-                └── [校验失败] → ESP_LOGW → RX_WAIT_SOF1(丢弃重来)       │
-                                                                       │
-                ▼                                                      │
-          main_task (mian_task.c) 被 xQueueReceive 唤醒                │
-            │                                                           │
-            ├── item.msg_type == RESPONSE && item.cmd == CMD_DB?        │
-            │     └── atof(payload) → float dB_value                     │
-            │           └── xQueueSend(dB_queue, &dB_value) ──────────┐ │
-            │                                                          │ │
-            └── item.msg_type == REPORT && item.cmd == CMD_DB?         │ │
-                  └── atof(payload) → xQueueSend(dB_queue, ...) ──────┘ │
-                                                                        │
-                ▼                                                       │
-          dB_task (detail_dB_logic.c) 被 xQueueReceive 唤醒            │
-            ├── latest_dB_value = dB_value                              │
-            ├── latest_dB_valid = true                                  │
-            ├── mqtt_report_set_float("dB_value", dB_value)  写上报注册表│
-            ├── mqtt_report_set_bool("connect_status", true)            │
-            └── mqtt_report_request_publish() ──────────────────────┐   │
-                                                                     │   │
-                ▼                                                    │   │
-          LVGL 定时器(ui_timer_cb, 100ms)  [ui_main01.c]            │   │
-            ├── dB_get_latest_valid()?                               │   │
-            ├── dB_get_latest_value() → snprintf → lv_label_set_text  │   │
-            └── temp_get_latest_valid()? 同样更新温度显示             │   │
-                                                                     │   │
-                ▼                                                    │   │
-          mqtt_report_task 被 xTaskNotifyGive 唤醒  [my_mqtt.c]     │   │
-            └── mqtt_publish_all_report()                            │   │
-                  ├── mqtt_report_get_all(&count)  读取所有有效注册项  │   │
-                  ├── snprintf 逐字段拼接 OneNET JSON 格式             │   │
-                  └── mqtt_send_message(post_topic, json)              │   │
-                        └── esp_mqtt_client_publish() --TCP→ OneNET 平台
+```mermaid
+sequenceDiagram
+    participant UI as UI 事件
+    participant SER as my_serial (ESP32)
+    participant UART as UART 总线
+    participant STM as mySerial (STM32)
+    participant MAIN as main_task (STM32)
+    participant HW as 传感器硬件
+
+    UI->>SER: msg_Request(CMD_DB, "DB Init")
+    activate SER
+    SER->>SER: 组装帧: SOF + Ver + REQUEST + CMD_DB + Seq + Len + Payload + Checksum + EOF
+    SER->>UART: uart_write_bytes()
+    deactivate SER
+
+    UART-->>STM: UART RX 中断逐字节接收
+    activate STM
+    STM->>STM: 14 状态机解析 → 校验通过
+    STM->>MAIN: osMessageQueuePut(main_queue)
+    deactivate STM
+
+    activate MAIN
+    MAIN->>MAIN: strcmp(payload, "DB Init") → 匹配子命令
+    MAIN->>HW: DB_Init() → HAL_ADC_Start_DMA()
+    MAIN->>SER: msg_Report("DB Init OK")
+    deactivate MAIN
+
+    activate SER
+    SER->>UART: protocol_send_frame() → 响应帧回传
+    deactivate SER
 ```
 
-### 四、温湿度数据上行完整流程
+### 五、OTA 固件升级
 
+```mermaid
+sequenceDiagram
+    participant UI as ui_detailOTA
+    participant OTA as my_ota
+    participant SRV as OneNET OTA API
+    participant TASK as ota_task
+    participant HW as Flash
+
+    UI->>UI: 点击 "updates" 按钮
+    UI->>UI: esp_wifi_sta_get_ap_info() → 确认 Wi-Fi 已连接
+    UI->>OTA: onenet_ota_upload_version()
+    activate OTA
+    OTA->>OTA: get_app_verion() → 当前版本号
+    OTA->>OTA: dev_token_generate() → HMAC-SHA256 token
+    OTA->>SRV: HTTP POST /version (JSON: {s_version, f_version})
+    SRV-->>OTA: code=0 → 上报成功
+    deactivate OTA
+
+    Note over UI: [待补完] 查询升级任务
+    OTA->>SRV: HTTP GET /check?type=1&version=xxx
+    SRV-->>OTA: target_version + task_id
+
+    OTA->>TASK: xTaskCreate(ota_task)
+    activate TASK
+    TASK->>TASK: esp_https_ota_begin() → 初始化 OTA 分区
+    TASK->>TASK: validate_image_header() → 版本比对
+    loop 分块下载
+        TASK->>SRV: HTTPS 固件下载
+        SRV-->>TASK: 固件数据块
+    end
+    TASK->>TASK: esp_https_ota_finish() → 校验写入
+    TASK->>HW: esp_restart() → 重启进入新固件
+    deactivate TASK
 ```
-硬件层 (STM32):
-  PB0 → DHT22 单总线
-    │
-    └── DHT22Task (temperature.c) 循环执行:
-          ├── if(!g_dht22_enabled) → osDelay(200); continue
-          ├── DHT22_Read(&temp, &humi)
-          │     ├── DHT22_Send_Start()              发送 18ms 低电平起始信号
-          │     ├── __disable_irq()                  关中断! 保证时序原子性
-          │     ├── DHT22_Wait_Ack()                 等待三段应答(拉低→拉高→拉低)
-          │     ├── DHT22_Read_Byte() × 5            逐字节读取 40bit 数据
-          │     │     └── DHT22_Read_Bit() × 8
-          │     │           ├── 等低电平结束(起始)
-          │     │           └── 测高电平持续时间: >40μs → 1, <40μs → 0
-          │     ├── __enable_irq()                   恢复中断
-          │     └── DHT22_Parse_Data()               校验和 + 解析温湿度
-          │           ├── checksum = (B0+B1+B2+B3) & 0xFF vs B4
-          │           ├── humidity = ((B0<<8)|B1) / 10.0f
-          │           └── temperature = ((B2<<8)|B3) / 10.0f (支持负温)
-          │
-          └── DHT22_Send_Report(temp, humi)
-                ├── temp10 = (int16_t)(temp * 10)    温湿度 ×10 取整
-                ├── hum10 = (uint16_t)(humi * 10)
-                ├── payload[0..1] = temp10(little-endian)
-                ├── payload[2..3] = hum10(little-endian)
-                └── msg_Response(CMD_TEMPERATURE, payload, 4)
-                      └── protocol_send_frame() → HAL_UART_Transmit()
-                                                              │
-── 板间 UART 传输 ──────────────────────────────────────────│──
-                                                              │
-ESP32 接收:                                                   │
-  uart_event_task → 状态机解析 → xQueueSend(main_queue)      │
-                                                              │
-                ▼                                             │
-          main_task (mian_task.c)                             │
-            └── item.cmd == CMD_TEMPERATURE?                  │
-                  └── xQueueSend(temp_queue, &item) ─────────┐│
-                                                              ││
-                ▼                                             ││
-          temp_task (detail_temp_logic.c)                     ││
-            ├── 校验: cmd==TEMPERATURE && payload_len>=4       ││
-            ├── temp_raw = payload[0] | (payload[1]<<8)        ││
-            ├── humi_raw = payload[2] | (payload[3]<<8)        ││
-            ├── temp = temp_raw / 10.0f                        ││
-            ├── humi = humi_raw / 10.0f                        ││
-            ├── latest_temp_value = temp; latest_temp_valid = true
-            ├── latest_humidity_value = humi
-            ├── mqtt_report_set_float("temp_value", temp)      ││
-            ├── mqtt_report_set_float("humi_value", humi)      ││
-            └── mqtt_report_request_publish() ─────────────────┘│
-                                                                │
-          → LVGL 定时器更新 ui_temperatureNum (同分贝流程)      │
-          → mqtt_report_task 被通知 → JSON 上报 OneNET (同分贝流程)
-```
-
-### 五、协议帧发送流程（以 ESP32 端发起请求为例）
-
-```
-业务层调用:
-  msg_Request(CMD_DB, "DB Init", 7)               [my_serial.c]
-    │
-    ├── 组装 UartTxItem:
-    │     .msg_type = MSG_TYPE_REQUEST (0)
-    │     .cmd = CMD_DB (0x02)
-    │     .seq = seq_num++                         全局序列号自增
-    │     .payload = "DB Init"
-    │     .payload_len = 7
-    │
-    └── xQueueSend(uart_tx_queue, &tx_item) ────────┐
-                                                     │
-                ▼                                    │
-          uart_tx_task 被唤醒                         │
-            └── protocol_send_frame(...)             │
-                  │                                   │
-                  ├── 构建帧缓冲区 frame[140]:        │
-                  │     [0]=0x55  [1]=0xAA            SOF
-                  │     [2]=0x01                       Version
-                  │     [3]=0x00                       MSG_TYPE_REQUEST
-                  │     [4]=0x02                       CMD_DB
-                  │     [5..6]=seq                     Seq (LE)
-                  │     [7..8]=7                       PayloadLen (LE)
-                  │     [9..15]="DB Init"              Payload
-                  │
-                  ├── calculate_checksum_fields()      累加校验
-                  │     = 0x01 + 0x00 + 0x02 + seq_L + seq_H + 7 + 0 + 'D'+'B'+' '+'I'+'n'+'i'+'t'
-                  │
-                  ├── frame[N+9..N+10] = checksum     Checksum (LE)
-                  ├── frame[N+11]=0x0D [N+12]=0x0A   EOF
-                  │
-                  └── uart_write_bytes(UART1, frame, total_len)
-                        │
-                        └── 硬件 TX(GPIO17) → STM32 PA10(RX)
-                                             │
-── 板间 UART 传输 ─────────────────────────│──
-                                             │
-STM32 接收:                                  ▼
-  USART1 RX 中断 → HAL_UART_RxCpltCallback  [mySerial.c]
-    └── osMessageQueuePut(uart_rx_queue, &s_rx_byte)
-          │
-          ▼
-    uart_rx_task 逐字节取出 → 状态机解析(与 ESP32 相同的 14 状态)
-          │
-          ├── [完整帧校验通过]
-          │     └── 组装 UartTxItem → osMessageQueuePut(main_queue, &item)
-          │                                        │
-          └── [校验失败] → RX_WAIT_SOF1(丢弃)       │
-                                                    ▼
-                                            main_task (main_task.c)
-                                              ├── msg_type == REQUEST?
-                                              │     ├── cmd == CMD_DB? → strcmp("DB Init")==0?
-                                              │     │     ├── DB_Init()             启动 ADC+DMA
-                                              │     │     └── msg_Report("DB Init OK")
-                                              │     │           └── protocol_send_frame() → UART TX
-                                              │     │
-                                              │     └── cmd == CMD_TEMPERATURE?
-                                              │           └── strcmp("DHT22 Init")==0?
-                                              │                 ├── DHT22_Init()      g_dht22_enabled=true
-                                              │                 └── msg_Report("DHT22 Init OK")
-                                              │
-                                              └── msg_type == RESPONSE/REPORT?
-                                                    └── (当前未处理，ESP32 负责消费这些消息)
-```
-
-### 六、UI 交互流程（触摸 → 界面切换）
-
-```
-硬件触摸 → XPT2046 采集
-  │
-  └── LVGL 输入设备读取回调:
-        touch_read_cb(indev, data)                    [my_screen.c]
-          ├── esp_lcd_touch_read_data()               读取触摸原始数据
-          ├── esp_lcd_touch_get_data()                获取坐标 + 状态
-          ├── [有触摸]:
-          │     ├── raw_x,y → 线性映射 → mapped_x,y   坐标校准
-          │     ├── data->point = (mapped_x, mapped_y)
-          │     ├── data->state = PRESSED
-          │     └── screen_idle_lock_mark_activity()  重置空闲计时
-          └── [无触摸]:
-                └── data->state = RELEASED
-                      │
-                      ▼
-                LVGL 内部处理:
-                  ├── lv_indev_read()                 读取输入设备
-                  ├── 命中测试(哪个对象被点中)
-                  ├── 触发对应的事件回调
-                  │
-                  ├── [点击 ui_Label1(时间区域)]
-                  │     └── ui_event_Label1()         [ui_main01.c]
-                  │           └── _ui_screen_change(&ui_detailTime, ...)
-                  │                 ├── 如果需要: ui_main01_screen_destroy()
-                  │                 ├── ui_detailTime_screen_init()  创建新界面对象
-                  │                 │     └── lv_obj_create + lv_label_create 等
-                  │                 └── lv_scr_load(ui_detailTime)  切换显示
-                  │
-                  ├── [点击 ui_WIFI(设置界面)]
-                  │     └── ui_event_Label5()         [ui_setting.c]
-                  │           ├── _ui_screen_change(&ui_WIFIsetting, ...)
-                  │           └── xTaskCreate(wifi_scan_worker_task)  后台扫描
-                  │                 └── wifi_scan_worker_task()       [wifi_scan.c]
-                  │                       ├── esp_wifi_scan_start()   同步扫描(阻塞)
-                  │                       ├── esp_wifi_scan_get_ap_records()
-                  │                       ├── 拼接 "SSID1\nSSID2\n..."
-                  │                       ├── lv_async_call(wifi_update_dropdown_async, options)
-                  │                       │     └── [在 LVGL 线程中回调]
-                  │                       │           └── lv_dropdown_set_options(ui_WIFIChoice, options)
-                  │                       └── vTaskDelete(NULL)        任务自删除
-                  │
-                  ├── [点击 OTA 更新按钮]
-                  │     └── ui_event_checkUpdate()    [ui_detailOTA.c]
-                  │           ├── esp_wifi_sta_get_ap_info()  检查 Wi-Fi 连接状态
-                  │           ├── onenet_ota_upload_version() 上报当前版本
-                  │           └── [待补完] 查询任务 → 提示用户 → 启动 ota_task()
-                  │
-                  ├── [左右滑动手势]
-                  │     └── LV_EVENT_GESTURE + LV_DIR_LEFT/RIGHT
-                  │           └── _ui_screen_change(&ui_main02, OVER_LEFT, ...)
-                  │
-                  └── [下滑手势 → 设置]
-                        └── _ui_screen_change(&ui_setting, FADE_ON, ...)
-
-空闲 5 分钟:
-  lvgl_port_task() 每循环:
-    └── screen_idle_lock_poll()                      [screen_idle_lock.c]
-          ├── s_screen_locked? → return(已锁屏,不检查)
-          ├── lv_screen_active() == ScreenLock? → s_screen_locked=true
-          ├── lv_tick_elaps(s_last_activity) >= 5min?
-          │     └── _ui_screen_change(&ui_ScreenLock, FADE_ON, ...)
-          └── (未超时) → return
-
-锁屏后点击任意位置:
-  └── touch_read_cb() → screen_idle_lock_mark_activity()  重置计时
-        └── screen_idle_lock_poll() 检测到 active screen 不是 ScreenLock
-              └── s_screen_locked = false → 恢复正常交互
-```
-
-### 七、MQTT 停止与 Wi-Fi 断开流程
-
-```
-用户操作:
-  ├── [关闭 Wi-Fi 开关]
-  │     └── ui_event_WIFISwitch()                    [ui_setting.c]
-  │           └── wifi_disconnect()                  [my_wifi.c]
-  │                 ├── s_user_disconnect = true
-  │                 ├── mqtt_app_stop()               [my_mqtt.c]
-  │                 │     ├── s_mqtt_started = false
-  │                 │     ├── esp_mqtt_client_stop()  停止客户端
-  │                 │     ├── esp_mqtt_client_destroy() 销毁客户端
-  │                 │     └── vTaskDelete(mqtt_report_task)  删除上报任务
-  │                 ├── esp_wifi_disconnect()         断开 Wi-Fi
-  │                 └── xEventGroupClearBits(CONNECTED|FAIL)
-  │
-  └── [意外断线]
-        └── WIFI_EVENT_STA_DISCONNECTED
-              └── wifi_event_handler()
-                    ├── s_user_disconnect == false?
-                    │     └── s_retry_num < 5? → esp_wifi_connect()
-                    │           └── s_retry_num++
-                    └── s_retry_num >= 5?
-                          ├── xEventGroupSetBits(FAIL_BIT)
-                          └── mqtt_app_stop()
-```
-
-### 八、OTA 固件升级流程（底层 API 已实现）
-
-```
-系统启动 Wi-Fi 获取 IP 后:
-  └── ip_event_handler() → mqtt_app_start() (MQTT 连接)
-        │
-        └── [Wi-Fi 获取 IP] → esp_event → event_handler()  [my_ota.c]
-              └── ato_start()
-                    └── [待补完] 应调用 onenet_ota_check_task() 查询升级任务
-
-用户手动触发 OTA 检查:
-  └── ui_event_checkUpdate()                         [ui_detailOTA.c]
-        ├── esp_wifi_sta_get_ap_info()                确认 Wi-Fi 已连接
-        └── onenet_ota_upload_version()               [my_ota.c]
-              ├── get_app_verion()                     获取当前版本(NVS或app_desc)
-              │     └── my_nvs_get_value("app_version") → 否则 esp_app_get_description()
-              ├── snprintf → version_info JSON
-              ├── dev_token_generate()                 生成 HMAC-SHA256 鉴权 token
-              │     ├── 解码 AccessKey (Base64 → Binary)
-              │     ├── 构建签名字符串: "{et}\n{method}\n{res}\n{version}"
-              │     ├── mbedtls_md_hmac(SHA256, key, string) → digest
-              │     └── Base64 编码 digest → URL 编码 → token 字符串
-              └── onenet_ota_http_connect(POST, url, version_info)
-                    ├── esp_http_client_init()         创建 HTTP 客户端
-                    ├── esp_http_client_set_header("Authorization", token)
-                    ├── esp_http_client_perform()      同步 POST(阻塞)
-                    └── cJSON_Parse(data_buff)         解析响应 → 确认 code==0
-
-[待补完]:
-  onenet_ota_check_task()                             查询 OTA 任务
-    └── → 获取 target_version + task_id
-  onenet_ota_upload_status(tid, step=1~100)           上报进度
-  xTaskCreate(ota_task)                               创建下载任务
-    └── ota_task()                                    [my_ota.c]
-          ├── esp_https_ota_begin()                   初始化 OTA
-          ├── esp_https_ota_get_img_desc()            读取新固件描述
-          ├── validate_image_header()                 版本号比对(相同则拒绝)
-          ├── while(1):
-          │     └── esp_https_ota_perform()           分块下载(可读取进度)
-          ├── esp_https_ota_finish()                  完成 + 校验
-          └── esp_restart()                           重启进入新固件
-```
-
----
-
-## 学习总结
-
-### 做得好的方面
-
-- 自定义二进制协议设计合理，两端状态机实现稳定，CRC 校验、长度保护、异常恢复机制完善
-- 分贝采集的 DMA 双缓冲 + 两层滤波（移动平均 + 指数平滑）是典型的嵌入式信号处理方案
-- DHT22 的 DWT 微秒延时 + 关中断原子操作体现了对硬件时序的深入理解
-- 属性上报的注册表模式使新增传感器变得简单
-- LVGL 线程安全处理（互斥锁 + lv_async_call + LVGL 定时器）覆盖了全部跨线程访问场景
-
-### 需要改进的方面
-
-- 架构层面缺乏分层设计，底层驱动和上层业务耦合过重
-- 日志管理不够精细化（大量 INFO 级别日志实为 DEBUG）
-- 错误处理策略不统一（有的 return void，有的 return err，有的 assert）
-- 两端协议代码完全重复但缺乏注释说明对应关系
-
-### 最大的收获
-
-这个项目让我真正理解了"嵌入式系统不是独立技术的堆砌，而是将它们有机组合成一条可靠的数据链路"。从传感器输出的微弱模拟信号，经过 ADC 采样、DMA 搬运、滤波处理、串口传输、状态机解析、任务分发、界面渲染，最终变成云端的一个 JSON 字段——这条链路中的每一个环节都有其存在的意义和设计考量。理解了这一点，才算真正入门了嵌入式系统设计。
