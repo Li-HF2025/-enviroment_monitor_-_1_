@@ -29,8 +29,6 @@
 // JSON解析库头文件
 #include "cJSON.h"
 
-#include "my_nvs.h"
-#define NVS_KEY_APP_VERSION "app_version"
 
 #define ONENET_PRODUCT_ID CONFIG_ONENET_PRODUCT_ID
 #define ONENET_ACCESS_KEY CONFIG_ONENET_ACCESS_KEY
@@ -47,7 +45,10 @@ static uint8_t data_buff[MAX_DATA_BUFF];
 static size_t   data_buff_len = 0;
 
 static char target_version[64];    //目标版本号
-static char task_id = 0;    //ota任务id
+static int  task_id = 0;         //ota任务id
+static char ota_download_url[256];//固件下载地址
+static int  firmware_size = 0;   //固件大小（字节）
+static bool ota_running = false; //防止重复创建OTA任务
 
 static const char *TAG = "ATO";
 
@@ -216,6 +217,11 @@ static esp_err_t onenet_ota_http_connect(const char* url,esp_http_client_method_
     }
 
     char* token = (char*)malloc(512);
+    if (token == NULL) {
+        ESP_LOGE(TAG, "malloc token failed");
+        esp_http_client_cleanup(http_client);
+        return ESP_ERR_NO_MEM;
+    }
     memset(token,0,512);
     char request_res[256];
     snprintf(request_res, sizeof(request_res), "products/%s", ONENET_PRODUCT_ID);
@@ -243,23 +249,12 @@ static esp_err_t onenet_ota_http_connect(const char* url,esp_http_client_method_
     return err;
 }
 
-static const char *get_app_verion(void)
+const char *ota_get_current_version(void)
 {
-    static char version[64] = {0};
-    size_t len = sizeof(version);
-
-    version[0] = '\0';
-    my_nvs_get_value(NVS_KEY_APP_VERSION, version, &len);
-
-    if (version[0] != '\0') {
-        return version;
-    }
-
     const esp_app_desc_t *app_desc = esp_app_get_description();
     if (app_desc != NULL && app_desc->version[0] != '\0') {
         return app_desc->version;
     }
-
     return "unknown";
 }
 
@@ -270,7 +265,7 @@ esp_err_t onenet_ota_upload_version(void)
     char url[256];
     esp_err_t ret = ESP_FAIL;
     //获取版本号
-    const char* version = get_app_verion();
+    const char* version = ota_get_current_version();
     //生成消息体内容（版本号）
     snprintf(version_info,sizeof(version_info),"{\"s_version\":\"%s\", \"f_version\": \"%s\"}",version,version);
     //计算url
@@ -307,16 +302,24 @@ esp_err_t  onenet_ota_check_task(const char* type,const char* version)
             cJSON *data_js = cJSON_GetObjectItem(root,"data");
             cJSON* target_js = cJSON_GetObjectItem(data_js,"target");
             cJSON* tid_js = cJSON_GetObjectItem(data_js,"tid");
+            cJSON* size_js = cJSON_GetObjectItem(data_js,"size");
             if(code_js && cJSON_GetNumberValue(code_js) == 0)
             {
-                if(target_js && tid_js)    //我们感兴趣的只有任务id和目标版本号
+                if(target_js && tid_js)
                 {
                     snprintf(target_version,sizeof(target_version),"%s",cJSON_GetStringValue(target_js));
-                    task_id = cJSON_GetNumberValue(tid_js);    //取出任务id
+                    task_id = cJSON_GetNumberValue(tid_js);
+                    // fuse-ota下载URL: /{pid}/{dev}/{tid}/download
+                    snprintf(ota_download_url,sizeof(ota_download_url),
+                             ONENET_OTA_URL"/%s/%s/%d/download",
+                             ONENET_PRODUCT_ID,ONENET_DEVICE_NAME,task_id);
+                    if (size_js) {
+                        firmware_size = (int)cJSON_GetNumberValue(size_js);
+                    }
                     ret = ESP_OK;
                 }
             }
-            else 
+            else
             {
                 ESP_LOGI(TAG,"Check ota task invaild code");
             }
@@ -388,37 +391,62 @@ static esp_err_t validate_image_header(esp_app_desc_t *new_app_info)
     // 所有验证通过
     return ESP_OK;
 }
+// fuse-ota下载API需要Authorization头，通过此回调注入
+static esp_err_t ota_http_client_init_cb(esp_http_client_handle_t http_client)
+{
+    char token_buf[512];
+    memset(token_buf, 0, sizeof(token_buf));
+    char request_res[256];
+    snprintf(request_res, sizeof(request_res), "products/%s", ONENET_PRODUCT_ID);
+    dev_token_generate(token_buf, 2, get_token_expire_time(), request_res, "2022-05-01", ONENET_ACCESS_KEY);
+    esp_http_client_set_header(http_client, "Authorization", token_buf);
+    return ESP_OK;
+}
+
 static void ota_task(void *pvParameter){
-    ESP_LOGI(TAG, "OTA任务开始执行");
+    ESP_LOGI(TAG, "OTA任务开始执行, URL: %s", ota_download_url);
     esp_err_t err;
     esp_err_t ota_finish_err = ESP_OK;
+    int last_reported_step = 0;
 
-    //配置HTTP客户端
+    if (ota_download_url[0] == '\0') {
+        ESP_LOGE(TAG, "下载地址为空，无法启动OTA");
+        ota_running = false;
+        vTaskDelete(NULL);
+    }
+
+    //配置HTTP客户端（使用check_task获取的动态下载地址）
     esp_http_client_config_t config = {
-        .url = CONFIG_OTA_URL,
-        .cert_pem = NULL, 
+        .url = ota_download_url,
+        .cert_pem = NULL,
         .timeout_ms = 5000,
         .keep_alive_enable = true,
-        .buffer_size = 1024
+        .buffer_size = 1024,
+        .skip_cert_common_name_check = true,
     };
     esp_https_ota_config_t ota_config={
         .http_config = &config,
-        // .http_client_init_cb = _http_client_init_cb //可以添加HTTP客户端初始化回调函数，进行一些定制化的设置，ONENET平台不需要
+        .http_client_init_cb = ota_http_client_init_cb,
     };
     esp_https_ota_handle_t https_ota_handle = NULL;
-    // 开始HTTPS OTA升级流程
-    // 这一步会初始化OTA分区、连接服务器、验证固件头部
+    // 开始OTA下载流程（esp_https_ota_begin对http:// URL会自动降级为HTTP）
     err = esp_https_ota_begin(&ota_config, &https_ota_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "ESP HTTPS OTA Begin failed");
+        onenet_ota_upload_status(task_id, 104);    // 下载失败：请求超时
+        ota_running = false;
         vTaskDelete(NULL);
     }
+
+    // 上报开始下载
+    onenet_ota_upload_status(task_id, 0);
 
     // 获取新固件的应用描述信息
     esp_app_desc_t app_desc = {};
     err = esp_https_ota_get_img_desc(https_ota_handle, &app_desc);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "esp_https_ota_get_img_desc failed");
+        onenet_ota_upload_status(task_id, 206);    // 升级失败：未知异常
         goto ota_end;
     }
 
@@ -426,54 +454,61 @@ static void ota_task(void *pvParameter){
     err = validate_image_header(&app_desc);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "image header verification failed");
+        onenet_ota_upload_status(task_id, 204);    // 升级失败：版本不一致
         goto ota_end;
     }
 
-
+    // 循环下载固件数据
     while(1){
         err = esp_https_ota_perform(https_ota_handle);
-        // 如果返回值不是ESP_ERR_HTTPS_OTA_IN_PROGRESS，说明下载已完成或出错
         if (err != ESP_ERR_HTTPS_OTA_IN_PROGRESS) {
             break;
         }
-        const size_t len = esp_https_ota_get_image_len_read(https_ota_handle);
-        ESP_LOGD(TAG, "获取字段长度: %d", len);
+        // 上报下载进度（每变化10%上报一次）
+        if (firmware_size > 0) {
+            size_t len = esp_https_ota_get_image_len_read(https_ota_handle);
+            int step = (len * 100) / firmware_size;
+            if (step - last_reported_step >= 10) {
+                onenet_ota_upload_status(task_id, step);
+                last_reported_step = step;
+            }
+            ESP_LOGI(TAG, "Download progress: %d%% (%d/%d)", step, len, firmware_size);
+        }
         if (esp_https_ota_is_complete_data_received(https_ota_handle) != true) {
-            // 数据未完整接收，可能是网络中断或服务器错误
-            ESP_LOGE(TAG, "Complete data was not received.");
+            // 数据未完整接收，继续循环
+            continue;
         } else {
+            // 上报下载完成
+            onenet_ota_upload_status(task_id, 100);
             // 完成OTA升级，验证固件并更新引导分区
             ota_finish_err = esp_https_ota_finish(https_ota_handle);
-            if ((err == ESP_OK) && (ota_finish_err == ESP_OK)) {
-                // OTA升级成功，重启设备
+            if (ota_finish_err == ESP_OK) {
                 ESP_LOGI(TAG, "OTA更新完成");
-                vTaskDelay(1000 / portTICK_PERIOD_MS);  // 等待日志输出完成
+                onenet_ota_upload_status(task_id, 201);    // 升级成功
+                vTaskDelay(1000 / portTICK_PERIOD_MS);
                 esp_restart();
             } else {
-                // OTA升级失败
                 if (ota_finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
-                    // 固件验证失败，可能是固件损坏或签名不正确
-                    ESP_LOGE(TAG, "OTA更新失败");
+                    ESP_LOGE(TAG, "OTA更新失败：固件校验不通过");
+                    onenet_ota_upload_status(task_id, 205);    // MD5校验失败
                 }
                 ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed 0x%x", ota_finish_err);
+                ota_running = false;
                 vTaskDelete(NULL);
             }
         }
     }
 
+    // 循环退出但数据未完整接收
+    ESP_LOGE(TAG, "Complete data was not received.");
+    onenet_ota_upload_status(task_id, 106);    // 下载失败：信号不良/网络中断
 
 ota_end:
-    // 中止OTA升级流程，释放资源
+    ota_running = false;
     esp_https_ota_abort(https_ota_handle);
     ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed");
     vTaskDelete(NULL);
 }
-
-static void ato_start(void)
-{
-    ESP_LOGI(TAG, "开始执行 OTA");
-}
-
 
 static void event_handler(void* arg,esp_event_base_t event_base, int32_t event_id, void* event_data){
     if(event_base == ESP_HTTPS_OTA_EVENT){
@@ -511,18 +546,41 @@ static void event_handler(void* arg,esp_event_base_t event_base, int32_t event_i
                 break;
         }
     }else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        ESP_LOGI(TAG, "WiFi已连接,准备OTA连接");
-        ato_start();
+        ESP_LOGI(TAG, "WiFi已连接");
     }
 }
 
 
+void ato_start(void)
+{
+    if (ota_download_url[0] == '\0') {
+        ESP_LOGE(TAG, "未获取到固件下载地址，请先调用check_task");
+        return;
+    }
+    if (ota_running) {
+        ESP_LOGW(TAG, "OTA已在执行中，忽略重复启动");
+        return;
+    }
+    ota_running = true;
+    xTaskCreate(&ota_task, "ota_task", 8192, NULL, 5, NULL);
+}
+
+const char *ota_get_target_version(void)
+{
+    return target_version;
+}
+
+int ota_get_task_id(void)
+{
+    return task_id;
+}
+
+int ota_get_firmware_size(void)
+{
+    return firmware_size;
+}
+
 void ato_init(void){
     ESP_LOGI(TAG, "ATO模块初始化开始");
     ESP_ERROR_CHECK(esp_event_handler_register(ESP_HTTPS_OTA_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));// 注册OTA事件处理程序
-
-    onenet_ota_upload_version();    //上报版本号到平台
-
-    //@TODO:检测WIFI连接状态，如果未连接则不启动OTA升级，或者在事件处理程序里根据需要处理OTA事件
-
 }

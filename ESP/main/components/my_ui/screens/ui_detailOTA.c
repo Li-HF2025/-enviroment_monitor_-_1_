@@ -54,9 +54,13 @@ void ui_event_checkUpdate(lv_event_t * e)
         if (err == ESP_OK) {
             ui_ota_show_status_with_timeout("Checking updates...");
             if (onenet_ota_upload_version() == ESP_OK) {
-                char * version;
-                char * type;
-                //@TODO:根据平台接口返回的结果，输出选择更新的提示，或者直接开始更新
+                // type="2" = SOTA (MCU应用升级)
+                if(onenet_ota_check_task("2", ota_get_current_version()) == ESP_OK) {
+                    ui_ota_show_status_with_timeout("Update found, downloading...");
+                    ato_start();
+                } else {
+                    ui_ota_show_status_with_timeout("No updates available");
+                }
             } else {
                 ui_ota_show_status_with_timeout("Failed to check updates");
             }
@@ -119,7 +123,7 @@ void ui_detailOTA_screen_init(void)
     lv_obj_set_height(ui_versionValue, LV_SIZE_CONTENT);
     lv_obj_set_x(ui_versionValue, 110);
     lv_obj_set_y(ui_versionValue, 74);
-    lv_label_set_text(ui_versionValue, "XX.XX");
+    lv_label_set_text(ui_versionValue, ota_get_current_version());
     lv_obj_set_style_text_font(ui_versionValue, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_checkUpdateButton = lv_button_create(ui_detailOTA);
