@@ -16,6 +16,8 @@ extern void ui_detialLight_screen_destroy(void);
 extern void ui_event_detialLight(lv_event_t * e);
 extern lv_obj_t * ui_detialLight;
 extern lv_obj_t * ui_Switch3;
+extern lv_obj_t * ui_lightSwitchLabel;
+extern void ui_event_Switch3(lv_event_t * e);
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

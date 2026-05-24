@@ -16,6 +16,7 @@ extern void ui_detialDB_screen_destroy(void);
 extern void ui_event_detialDB(lv_event_t * e);
 extern lv_obj_t * ui_detialDB;
 extern lv_obj_t * ui_Switch2;
+extern lv_obj_t * ui_dBSwitchLabel;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

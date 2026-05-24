@@ -16,6 +16,7 @@ extern void ui_detailTemperature_screen_destroy(void);
 extern void ui_event_detailTemperature(lv_event_t * e);
 extern lv_obj_t * ui_detailTemperature;
 extern lv_obj_t * ui_Switch1;
+extern lv_obj_t * ui_tempSwitchLabel;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

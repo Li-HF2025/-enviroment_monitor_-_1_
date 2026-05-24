@@ -17,6 +17,7 @@ extern void ui_event_main02(lv_event_t * e);
 extern lv_obj_t * ui_main02;
 extern void ui_event_tempuratureImage(lv_event_t * e);
 extern lv_obj_t * ui_tempuratureImage;
+extern lv_obj_t * ui_tempTitle;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

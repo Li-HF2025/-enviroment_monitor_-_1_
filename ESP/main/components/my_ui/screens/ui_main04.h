@@ -17,6 +17,7 @@ extern void ui_event_main04(lv_event_t * e);
 extern lv_obj_t * ui_main04;
 extern void ui_event_lightImage(lv_event_t * e);
 extern lv_obj_t * ui_lightImage;
+extern lv_obj_t * ui_lightTitle;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
