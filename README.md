@@ -500,18 +500,18 @@ XPT2046 返回的原始坐标范围经实测约为 X: 10~225, Y: 10~310，通过
 主界面 (main01) ──左右滑──► main02 ──► main03 ──► main04
     │                    （更多传感器数据页，待扩展）
     │ 点击时钟区域
-    ├──► 时间详情页 ── 年月日/时分秒/星期 + SNTP 同步控制
+    ├──► 时间详情页 ── 年月日/时分秒/星期缩写 + SNTP 同步控制 + 手动设时
     │ 点击分贝区域
-    ├──► 分贝详情页 ── 实时分贝大字体数值
+    ├──► 分贝详情页 ── 实时分贝数值 + 最大/最小/平均统计
     │ 点击温度区域
-    ├──► 温湿度详情页 ── 温度 + 湿度大字体显示
+    ├──► 温湿度详情页 ── 温度 + 湿度双列显示 + 最大/最小/平均统计
     │ 点击光照区域
-    ├──► 光照详情页 ── 预留页，等待 CMD_LIGHT 实现
+    ├──► 光照详情页 ── 实时光照数值 + 开关控制
     │ 下滑手势
     └──► 设置页面 ── Wi-Fi 开关 + OTA 检查入口
                │
                ├──► Wi-Fi 设置页 ── AP 扫描列表 + 密码输入键盘 + 连接按钮
-               └──► OTA 详情页 ── 当前版本 + 检查更新按钮 + 状态提示
+               └──► OTA 详情页 ── 当前版本/目标版本/固件大小 + 检查更新 + 下载进度条
 
 空闲 5 分钟 ──► 锁屏页 ── 点击任意位置解锁
 ```
@@ -520,12 +520,12 @@ XPT2046 返回的原始坐标范围经实测约为 X: 10~225, Y: 10~310，通过
 
 | 界面 | 生成文件 | 业务逻辑文件 | 触发方式 |
 |------|---------|------------|---------|
-| 主界面 1 | `ui_main01.c` | `detail_time_logic.c` / `detail_dB_logic.c` / `detail_temp_logic.c` | 启动默认 |
+| 主界面 1 | `ui_main01.c` | `detail_time_logic.c` / `detail_dB_logic.c` / `detail_temp_logic.c` / `detail_light_logic.c` | 启动默认 |
 | 主界面 2-4 | `ui_main02~04.c` | — | 左右滑动 |
 | 时间详情 | `ui_detailTime.c` | `detail_time_logic.c` | 点击时钟区域 |
 | 温湿度详情 | `ui_detailTemperature.c` | `detail_temp_logic.c` | 点击温度区域 |
 | 分贝详情 | `ui_detialDB.c` | `detail_dB_logic.c` | 点击分贝区域 |
-| 光照详情 | `ui_detialLight.c` | —（预留） | 点击光照区域 |
+| 光照详情 | `ui_detialLight.c` | `detail_light_logic.c` | 点击光照区域 |
 | 设置 | `ui_setting.c` | — | 下滑手势 |
 | Wi-Fi 设置 | `ui_WIFIsetting.c` | `wifi_scan.c` | 点击 WiFi 标签 |
 | OTA 详情 | `ui_detailOTA.c` | `my_ota.c` | 点击 OTA 标签 |
@@ -792,7 +792,7 @@ version=2022-05-01&res=products%2F{pid}&et={timestamp}&method=sha256&sign={base6
 
 #### 当前状态
 
-底层的 token 生成、版本上报、任务查询、状态上报、固件下载烧写功能均已实现。自动触发流程（查询到任务后提示用户并启动下载）待补完。
+底层的 token 生成、版本上报、任务查询、状态上报、固件下载烧写功能均已实现。UI 端支持 OTA 下载进度条实时显示（通过 `ota_get_progress()` / `ota_is_running()` 轮询），每 10% 上报一次进度给平台。自动触发流程（查询到任务后提示用户并启动下载）待补完。
 
 ---
 
@@ -834,12 +834,14 @@ environmental_monitoring/
 │   │       │   │   ├── detail_time_logic.h
 │   │       │   │   ├── detail_dB_logic.h
 │   │       │   │   ├── detail_temp_logic.h
+│   │       │   │   ├── detail_light_logic.h
 │   │       │   │   └── screen_idle_lock.h
 │   │       │   └── src/
 │   │       │       ├── my_screen.c       # LCD + 触摸初始化 + LVGL 渲染循环
 │   │       │       ├── detail_time_logic.c  # SNTP 时间同步 + 界面更新
 │   │       │       ├── detail_dB_logic.c    # 分贝数据接收 + MQTT 触发
 │   │       │       ├── detail_temp_logic.c  # 温湿度数据解析 + MQTT 触发
+│   │       │       ├── detail_light_logic.c # 光照数据接收 + MQTT 触发
 │   │       │       └── screen_idle_lock.c   # 空闲锁屏逻辑
 │   │       ├── my_ui/                    # SquareLine 生成的 LVGL 界面
 │   │       │   ├── ui.h                 # 界面总入口
