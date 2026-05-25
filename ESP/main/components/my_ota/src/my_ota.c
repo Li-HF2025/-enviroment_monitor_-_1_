@@ -49,6 +49,7 @@ static int  task_id = 0;         //ota任务id
 static char ota_download_url[256];//固件下载地址
 static int  firmware_size = 0;   //固件大小（字节）
 static bool ota_running = false; //防止重复创建OTA任务
+static int  s_ota_progress = 0;  // 当前下载进度百分比，供UI轮询读取
 
 static const char *TAG = "ATO";
 
@@ -468,40 +469,40 @@ static void ota_task(void *pvParameter){
         if (firmware_size > 0) {
             size_t len = esp_https_ota_get_image_len_read(https_ota_handle);
             int step = (len * 100) / firmware_size;
+            s_ota_progress = step;  // 实时更新，供UI轮询
             if (step - last_reported_step >= 10) {
                 onenet_ota_upload_status(task_id, step);
                 last_reported_step = step;
             }
             ESP_LOGI(TAG, "Download progress: %d%% (%d/%d)", step, len, firmware_size);
         }
-        if (esp_https_ota_is_complete_data_received(https_ota_handle) != true) {
-            // 数据未完整接收，继续循环
-            continue;
-        } else {
-            // 上报下载完成
-            onenet_ota_upload_status(task_id, 100);
-            // 完成OTA升级，验证固件并更新引导分区
-            ota_finish_err = esp_https_ota_finish(https_ota_handle);
-            if (ota_finish_err == ESP_OK) {
-                ESP_LOGI(TAG, "OTA更新完成");
-                onenet_ota_upload_status(task_id, 201);    // 升级成功
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-                esp_restart();
-            } else {
-                if (ota_finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
-                    ESP_LOGE(TAG, "OTA更新失败：固件校验不通过");
-                    onenet_ota_upload_status(task_id, 205);    // MD5校验失败
-                }
-                ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed 0x%x", ota_finish_err);
-                ota_running = false;
-                vTaskDelete(NULL);
-            }
-        }
     }
 
-    // 循环退出但数据未完整接收
-    ESP_LOGE(TAG, "Complete data was not received.");
-    onenet_ota_upload_status(task_id, 106);    // 下载失败：信号不良/网络中断
+    // 下载循环结束，检查是否完整接收
+    if (!esp_https_ota_is_complete_data_received(https_ota_handle)) {
+        ESP_LOGE(TAG, "Complete data was not received.");
+        onenet_ota_upload_status(task_id, 106);
+        goto ota_end;
+    }
+
+    // 上报下载完成
+    onenet_ota_upload_status(task_id, 100);
+    // 完成OTA升级，验证固件并更新引导分区
+    ota_finish_err = esp_https_ota_finish(https_ota_handle);
+    if (ota_finish_err == ESP_OK) {
+        ESP_LOGI(TAG, "OTA更新完成");
+        onenet_ota_upload_status(task_id, 201);
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        esp_restart();
+    } else {
+        if (ota_finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
+            ESP_LOGE(TAG, "OTA更新失败：固件校验不通过");
+            onenet_ota_upload_status(task_id, 205);
+        }
+        ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed 0x%x", ota_finish_err);
+        ota_running = false;
+        vTaskDelete(NULL);
+    }
 
 ota_end:
     ota_running = false;
@@ -578,6 +579,16 @@ int ota_get_task_id(void)
 int ota_get_firmware_size(void)
 {
     return firmware_size;
+}
+
+int ota_get_progress(void)
+{
+    return s_ota_progress;
+}
+
+bool ota_is_running(void)
+{
+    return ota_running;
 }
 
 void ato_init(void){

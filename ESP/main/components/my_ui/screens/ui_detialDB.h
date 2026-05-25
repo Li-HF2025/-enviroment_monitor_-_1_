@@ -14,9 +14,15 @@ extern "C" {
 extern void ui_detialDB_screen_init(void);
 extern void ui_detialDB_screen_destroy(void);
 extern void ui_event_detialDB(lv_event_t * e);
+extern void ui_event_dBBackBtn(lv_event_t * e);
 extern lv_obj_t * ui_detialDB;
+extern lv_obj_t * ui_dBValue;
+extern lv_obj_t * ui_dBMaxVal;
+extern lv_obj_t * ui_dBMinVal;
+extern lv_obj_t * ui_dBAvgVal;
 extern lv_obj_t * ui_Switch2;
 extern lv_obj_t * ui_dBSwitchLabel;
+extern lv_obj_t * ui_dBBackBtn;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
@@ -24,4 +30,3 @@ extern lv_obj_t * ui_dBSwitchLabel;
 #endif
 
 #endif
-

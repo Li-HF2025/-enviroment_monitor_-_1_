@@ -23,6 +23,8 @@ extern void ui_event_checkUpdate(lv_event_t * e);
 extern lv_obj_t * ui_checkUpdateButton;
 extern lv_obj_t * ui_checkUpdateButtonLabel;
 extern lv_obj_t * ui_otaStatusLabel;
+extern lv_obj_t * ui_progressBar;
+extern lv_obj_t * ui_progressLabel;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

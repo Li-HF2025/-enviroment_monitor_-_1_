@@ -34,7 +34,7 @@ void ui_main03_screen_init(void)
     lv_obj_set_pos(ui_dBTitle, 0, 10);
     lv_obj_set_align(ui_dBTitle, LV_ALIGN_TOP_MID);
     lv_label_set_text(ui_dBTitle, "Sound Level");
-    lv_obj_set_style_text_font(ui_dBTitle, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_dBTitle, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_dBImage = lv_image_create(ui_main03);
     lv_image_set_src(ui_dBImage, &ui_img_db_png);

@@ -37,10 +37,9 @@ static void time_update_callback(lv_timer_t* timer){
     if (ui_Label1 != NULL) {
         lv_label_set_text(ui_Label1, time_str);
     }
-    char week_num_str[4];
-    snprintf(week_num_str, sizeof(week_num_str), "%d", timeinfo->tm_wday);
+    static const char *weekdays[] = {"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"};
     if (ui_Label3 != NULL) {
-        lv_label_set_text(ui_Label3, week_num_str);
+        lv_label_set_text(ui_Label3, weekdays[timeinfo->tm_wday]);
     }
     char datetime_str[32];
     snprintf(datetime_str, sizeof(datetime_str), "%s,%s", date_str, time_str);

@@ -19,7 +19,10 @@ lv_obj_t * ui_sizeValue = NULL;
 lv_obj_t * ui_checkUpdateButton = NULL;
 lv_obj_t * ui_checkUpdateButtonLabel = NULL;
 lv_obj_t * ui_otaStatusLabel = NULL;
+lv_obj_t * ui_progressBar = NULL;
+lv_obj_t * ui_progressLabel = NULL;
 static lv_timer_t * s_ota_status_clear_timer = NULL;
+static lv_timer_t * s_ota_progress_timer = NULL;
 
 static void ui_ota_status_clear_cb(lv_timer_t * timer)
 {
@@ -27,6 +30,33 @@ static void ui_ota_status_clear_cb(lv_timer_t * timer)
     if (ui_otaStatusLabel != NULL) {
         lv_label_set_text(ui_otaStatusLabel, "");
     }
+    if (s_ota_status_clear_timer != NULL) {
+        lv_timer_del(s_ota_status_clear_timer);
+        s_ota_status_clear_timer = NULL;
+    }
+}
+
+static void ui_ota_progress_timer_cb(lv_timer_t * timer)
+{
+    LV_UNUSED(timer);
+    if (!ota_is_running()) {
+        return;
+    }
+
+    int progress = ota_get_progress();
+
+    if (lv_obj_has_flag(ui_progressBar, LV_OBJ_FLAG_HIDDEN)) {
+        lv_obj_remove_flag(ui_progressBar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_remove_flag(ui_progressLabel, LV_OBJ_FLAG_HIDDEN);
+    }
+
+    lv_bar_set_value(ui_progressBar, progress, LV_ANIM_ON);
+
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d%%", progress);
+    lv_label_set_text(ui_progressLabel, buf);
+
+    /* 下载进行中时不自动清除状态文字 */
     if (s_ota_status_clear_timer != NULL) {
         lv_timer_del(s_ota_status_clear_timer);
         s_ota_status_clear_timer = NULL;
@@ -76,6 +106,16 @@ void ui_event_checkUpdate(lv_event_t * e)
                     }
 
                     ui_ota_show_status_with_timeout("Update found, downloading...");
+                    /* 显示进度条并启动进度轮询 */
+                    if (lv_obj_has_flag(ui_progressBar, LV_OBJ_FLAG_HIDDEN)) {
+                        lv_obj_remove_flag(ui_progressBar, LV_OBJ_FLAG_HIDDEN);
+                        lv_obj_remove_flag(ui_progressLabel, LV_OBJ_FLAG_HIDDEN);
+                    }
+                    lv_bar_set_value(ui_progressBar, 0, LV_ANIM_OFF);
+                    lv_label_set_text(ui_progressLabel, "0%");
+                    if (s_ota_progress_timer == NULL) {
+                        s_ota_progress_timer = lv_timer_create(ui_ota_progress_timer_cb, 500, NULL);
+                    }
                     ato_start();
                 } else {
                     ui_ota_show_status_with_timeout("No updates available");
@@ -108,22 +148,26 @@ void ui_detailOTA_screen_init(void)
 
     // ── 顶部标题栏 ──
     ui_otaTitlePanel = lv_obj_create(ui_detailOTA);
-    lv_obj_set_size(ui_otaTitlePanel, 230, 38);
-    lv_obj_set_pos(ui_otaTitlePanel, 5, 5);
+    lv_obj_set_size(ui_otaTitlePanel, 230, 36);
+    lv_obj_set_pos(ui_otaTitlePanel, 0, 5);
+    lv_obj_set_align(ui_otaTitlePanel, LV_ALIGN_TOP_MID);
     lv_obj_remove_flag(ui_otaTitlePanel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(ui_otaTitlePanel, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_otaTitleLabel = lv_label_create(ui_otaTitlePanel);
     lv_obj_center(ui_otaTitleLabel);
     lv_label_set_text(ui_otaTitleLabel, "OTA Update");
-    lv_obj_set_style_text_font(ui_otaTitleLabel, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_otaTitleLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     // ── 版本信息卡片 ──
     ui_versionPanel = lv_obj_create(ui_detailOTA);
     lv_obj_set_size(ui_versionPanel, 230, 90);
-    lv_obj_set_pos(ui_versionPanel, 5, 50);
+    lv_obj_set_pos(ui_versionPanel, 0, 48);
+    lv_obj_set_align(ui_versionPanel, LV_ALIGN_TOP_MID);
     lv_obj_remove_flag(ui_versionPanel, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(ui_versionPanel, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(ui_versionPanel, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(ui_versionPanel, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(ui_versionPanel, 30, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_pad_all(ui_versionPanel, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_flex_flow(ui_versionPanel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(ui_versionPanel, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -139,10 +183,10 @@ void ui_detailOTA_screen_init(void)
 
     ui_versionLabel = lv_label_create(row_current);
     lv_label_set_text(ui_versionLabel, "Current:");
-    lv_obj_set_style_text_font(ui_versionLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_versionLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_versionValue = lv_label_create(row_current);
-    lv_obj_set_style_text_font(ui_versionValue, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_versionValue, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_label_set_text(ui_versionValue, ota_get_current_version());
     lv_obj_set_style_text_color(ui_versionValue, lv_color_hex(0x1A73E8), LV_PART_MAIN | LV_STATE_DEFAULT);
 
@@ -157,11 +201,11 @@ void ui_detailOTA_screen_init(void)
 
     ui_targetLabel = lv_label_create(row_target);
     lv_label_set_text(ui_targetLabel, "Target:");
-    lv_obj_set_style_text_font(ui_targetLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_targetLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_targetValue = lv_label_create(row_target);
     lv_label_set_text(ui_targetValue, "--");
-    lv_obj_set_style_text_font(ui_targetValue, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_targetValue, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_targetValue, lv_color_hex(0xE37400), LV_PART_MAIN | LV_STATE_DEFAULT);
 
     // Size 行
@@ -175,18 +219,40 @@ void ui_detailOTA_screen_init(void)
 
     ui_sizeLabel = lv_label_create(row_size);
     lv_label_set_text(ui_sizeLabel, "Size:");
-    lv_obj_set_style_text_font(ui_sizeLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_sizeLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_sizeValue = lv_label_create(row_size);
     lv_label_set_text(ui_sizeValue, "--");
-    lv_obj_set_style_text_font(ui_sizeValue, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_sizeValue, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_sizeValue, lv_color_hex(0x5F6368), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // ── 进度条（初始隐藏） ──
+    ui_progressBar = lv_bar_create(ui_detailOTA);
+    lv_obj_set_size(ui_progressBar, 210, 22);
+    lv_obj_set_pos(ui_progressBar, 0, 145);
+    lv_obj_set_align(ui_progressBar, LV_ALIGN_TOP_MID);
+    lv_bar_set_range(ui_progressBar, 0, 100);
+    lv_bar_set_value(ui_progressBar, 0, LV_ANIM_OFF);
+    lv_obj_add_flag(ui_progressBar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_radius(ui_progressBar, 6, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_progressBar, lv_color_hex(0xDDDDDD), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_progressBar, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(ui_progressBar, 6, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_progressBar, lv_color_hex(0x1A73E8), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+
+    ui_progressLabel = lv_label_create(ui_detailOTA);
+    lv_obj_set_pos(ui_progressLabel, 0, 172);
+    lv_obj_set_align(ui_progressLabel, LV_ALIGN_TOP_MID);
+    lv_label_set_text(ui_progressLabel, "0%");
+    lv_obj_set_style_text_font(ui_progressLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_progressLabel, lv_color_hex(0x1A73E8), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_add_flag(ui_progressLabel, LV_OBJ_FLAG_HIDDEN);
 
     // ── 检查更新按钮 ──
     ui_checkUpdateButton = lv_button_create(ui_detailOTA);
     lv_obj_set_size(ui_checkUpdateButton, 200, 44);
-    lv_obj_set_pos(ui_checkUpdateButton, 0, 150);
-    lv_obj_set_align(ui_checkUpdateButton, LV_ALIGN_CENTER);
+    lv_obj_set_pos(ui_checkUpdateButton, 0, 190);
+    lv_obj_set_align(ui_checkUpdateButton, LV_ALIGN_TOP_MID);
     lv_obj_set_style_radius(ui_checkUpdateButton, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(ui_checkUpdateButton, lv_color_hex(0x1A73E8), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_checkUpdateButton, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -196,17 +262,20 @@ void ui_detailOTA_screen_init(void)
     ui_checkUpdateButtonLabel = lv_label_create(ui_checkUpdateButton);
     lv_obj_center(ui_checkUpdateButtonLabel);
     lv_label_set_text(ui_checkUpdateButtonLabel, "Check Update");
-    lv_obj_set_style_text_font(ui_checkUpdateButtonLabel, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_checkUpdateButtonLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_checkUpdateButtonLabel, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
 
     // ── 状态信息 ──
     ui_otaStatusLabel = lv_label_create(ui_detailOTA);
     lv_obj_set_width(ui_otaStatusLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_otaStatusLabel, LV_SIZE_CONTENT);
-    lv_obj_set_pos(ui_otaStatusLabel, 0, 205);
-    lv_obj_set_align(ui_otaStatusLabel, LV_ALIGN_CENTER);
+    lv_obj_set_pos(ui_otaStatusLabel, 0, 245);
+    lv_obj_set_align(ui_otaStatusLabel, LV_ALIGN_TOP_MID);
     lv_label_set_text(ui_otaStatusLabel, "");
-    lv_obj_set_style_text_font(ui_otaStatusLabel, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_otaStatusLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // ── 进度轮询定时器 ──
+    s_ota_progress_timer = lv_timer_create(ui_ota_progress_timer_cb, 500, NULL);
 
     lv_obj_add_event_cb(ui_checkUpdateButton, ui_event_checkUpdate, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(ui_detailOTA, ui_event_detailOTA, LV_EVENT_GESTURE, NULL);
@@ -217,6 +286,10 @@ void ui_detailOTA_screen_destroy(void)
     if (s_ota_status_clear_timer != NULL) {
         lv_timer_del(s_ota_status_clear_timer);
         s_ota_status_clear_timer = NULL;
+    }
+    if (s_ota_progress_timer != NULL) {
+        lv_timer_del(s_ota_progress_timer);
+        s_ota_progress_timer = NULL;
     }
 
     if(ui_detailOTA) lv_obj_del(ui_detailOTA);
@@ -234,4 +307,6 @@ void ui_detailOTA_screen_destroy(void)
     ui_checkUpdateButton = NULL;
     ui_checkUpdateButtonLabel = NULL;
     ui_otaStatusLabel = NULL;
+    ui_progressBar = NULL;
+    ui_progressLabel = NULL;
 }

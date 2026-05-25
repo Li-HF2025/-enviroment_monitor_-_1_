@@ -14,9 +14,16 @@ extern "C" {
 extern void ui_detailTemperature_screen_init(void);
 extern void ui_detailTemperature_screen_destroy(void);
 extern void ui_event_detailTemperature(lv_event_t * e);
+extern void ui_event_tempBackBtn(lv_event_t * e);
 extern lv_obj_t * ui_detailTemperature;
+extern lv_obj_t * ui_tempValue;
+extern lv_obj_t * ui_humidityValue;
+extern lv_obj_t * ui_tempMaxVal;
+extern lv_obj_t * ui_tempMinVal;
+extern lv_obj_t * ui_tempAvgVal;
 extern lv_obj_t * ui_Switch1;
 extern lv_obj_t * ui_tempSwitchLabel;
+extern lv_obj_t * ui_tempBackBtn;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
@@ -24,4 +31,3 @@ extern lv_obj_t * ui_tempSwitchLabel;
 #endif
 
 #endif
-

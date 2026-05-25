@@ -74,7 +74,7 @@ void ui_setting_screen_init(void)
     lv_obj_set_align(ui_Label5, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_Label5, "WiFi Settings");
     lv_obj_add_flag(ui_Label5, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_text_font(ui_Label5, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label5, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_WIFISwitch = lv_switch_create(ui_WIFI);
     lv_obj_set_size(ui_WIFISwitch, 50, 25);
@@ -94,7 +94,7 @@ void ui_setting_screen_init(void)
     ui_Label06 = lv_label_create(ui_OTA);
     lv_obj_center(ui_Label06);
     lv_label_set_text(ui_Label06, "Check Version");
-    lv_obj_set_style_text_font(ui_Label06, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label06, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_add_event_cb(ui_Label5, ui_event_Label5, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(ui_WIFISwitch, ui_event_WIFISwitch, LV_EVENT_VALUE_CHANGED, NULL);

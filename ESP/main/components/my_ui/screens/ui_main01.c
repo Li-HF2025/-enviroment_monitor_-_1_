@@ -79,7 +79,7 @@ void ui_main01_screen_init(void)
     ui_Label1 = lv_label_create(ui_timeBase);
     lv_obj_center(ui_Label1);
     lv_label_set_text(ui_Label1, "HH:MM:SS");
-    lv_obj_set_style_text_font(ui_Label1, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label1, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_Label1, lv_color_hex(0x1A73E8), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_flag(ui_Label1, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(ui_Label1, 5);
@@ -90,7 +90,7 @@ void ui_main01_screen_init(void)
     ui_dBNum = lv_label_create(ui_dBTable);
     lv_obj_center(ui_dBNum);
     lv_label_set_text(ui_dBNum, "dB:--.-");
-    lv_obj_set_style_text_font(ui_dBNum, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_dBNum, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     // ── 温度卡片 ──
     ui_temperatureTable = create_sensor_card(ui_main01, 16);
@@ -98,7 +98,7 @@ void ui_main01_screen_init(void)
     ui_temperatureNum = lv_label_create(ui_temperatureTable);
     lv_obj_center(ui_temperatureNum);
     lv_label_set_text(ui_temperatureNum, "Temp:--.-");
-    lv_obj_set_style_text_font(ui_temperatureNum, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_temperatureNum, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     // ── 光照卡片 ──
     ui_lightTable = create_sensor_card(ui_main01, 74);
@@ -106,7 +106,7 @@ void ui_main01_screen_init(void)
     ui_Label2 = lv_label_create(ui_lightTable);
     lv_obj_center(ui_Label2);
     lv_label_set_text(ui_Label2, "Light:--.-");
-    lv_obj_set_style_text_font(ui_Label2, &lv_font_montserrat_26, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label2, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     lv_obj_add_event_cb(ui_Label1, ui_event_Label1, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(ui_main01, ui_event_main01, LV_EVENT_ALL, NULL);

@@ -1,6 +1,7 @@
 #ifndef __MY_OTA_H
 #define __MY_OTA_H
 #include "esp_err.h"
+#include <stdbool.h>
 
 void ato_init(void);
 void ato_start(void);
@@ -13,5 +14,7 @@ const char *ota_get_current_version(void);
 const char *ota_get_target_version(void);
 int  ota_get_task_id(void);
 int  ota_get_firmware_size(void);
+int  ota_get_progress(void);
+bool ota_is_running(void);
 
 #endif

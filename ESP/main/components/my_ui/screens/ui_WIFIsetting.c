@@ -60,7 +60,7 @@ void ui_WIFIsetting_screen_init(void)
     ui_Label6 = lv_label_create(ui_Panel5);
     lv_obj_center(ui_Label6);
     lv_label_set_text(ui_Label6, "Select WiFi");
-    lv_obj_set_style_text_font(ui_Label6, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_Label6, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     // WiFi 下拉框
     ui_WIFIChoice = lv_dropdown_create(ui_WIFIsetting);

@@ -14,10 +14,15 @@ extern "C" {
 extern void ui_detialLight_screen_init(void);
 extern void ui_detialLight_screen_destroy(void);
 extern void ui_event_detialLight(lv_event_t * e);
+extern void ui_event_lightBackBtn(lv_event_t * e);
 extern lv_obj_t * ui_detialLight;
+extern lv_obj_t * ui_lightValue;
+extern lv_obj_t * ui_lightMaxVal;
+extern lv_obj_t * ui_lightMinVal;
+extern lv_obj_t * ui_lightAvgVal;
 extern lv_obj_t * ui_Switch3;
 extern lv_obj_t * ui_lightSwitchLabel;
-extern void ui_event_Switch3(lv_event_t * e);
+extern lv_obj_t * ui_lightBackBtn;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus
@@ -25,4 +30,3 @@ extern void ui_event_Switch3(lv_event_t * e);
 #endif
 
 #endif
-

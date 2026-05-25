@@ -1,8 +1,41 @@
 #include "../ui.h"
+#include "detail_light_logic.h"
+#include "lvgl.h"
 
 lv_obj_t * ui_detialLight = NULL;
+lv_obj_t * ui_lightValue = NULL;
+lv_obj_t * ui_lightMaxVal = NULL;
+lv_obj_t * ui_lightMinVal = NULL;
+lv_obj_t * ui_lightAvgVal = NULL;
 lv_obj_t * ui_Switch3 = NULL;
 lv_obj_t * ui_lightSwitchLabel = NULL;
+lv_obj_t * ui_lightBackBtn = NULL;
+
+static lv_timer_t * light_ui_timer = NULL;
+
+static void light_ui_timer_cb(lv_timer_t * timer)
+{
+    LV_UNUSED(timer);
+    if (light_get_latest_valid() && ui_lightValue) {
+        float v = light_get_latest_value();
+        char buf[16];
+        snprintf(buf, sizeof(buf), "%.1f lx", v);
+        lv_label_set_text(ui_lightValue, buf);
+    }
+}
+
+static lv_obj_t * create_card(lv_obj_t * parent, int y, int h)
+{
+    lv_obj_t * card = lv_obj_create(parent);
+    lv_obj_set_size(card, 230, h);
+    lv_obj_set_pos(card, 0, y);
+    lv_obj_set_align(card, LV_ALIGN_TOP_MID);
+    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(card, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(card, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(card, 30, LV_PART_MAIN | LV_STATE_DEFAULT);
+    return card;
+}
 
 void ui_event_detialLight(lv_event_t * e)
 {
@@ -14,12 +47,25 @@ void ui_event_detialLight(lv_event_t * e)
     }
 }
 
+void ui_event_lightBackBtn(lv_event_t * e)
+{
+    if(lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        _ui_screen_change(&ui_main04, LV_SCR_LOAD_ANIM_NONE, 250, 0, &ui_main04_screen_init);
+    }
+}
+
 void ui_event_Switch3(lv_event_t * e)
 {
     if(lv_event_get_code(e) == LV_EVENT_VALUE_CHANGED) {
         lv_obj_t * target = lv_event_get_target(e);
         bool is_on = lv_obj_has_state(target, LV_STATE_CHECKED);
-        lv_label_set_text(ui_lightSwitchLabel, is_on ? "Sensor: ON" : "Sensor: OFF");
+        if(is_on){
+            light_init();
+            lv_label_set_text(ui_lightSwitchLabel, "Sensor: ON");
+        }else{
+            light_deinit();
+            lv_label_set_text(ui_lightSwitchLabel, "Sensor: OFF");
+        }
     }
 }
 
@@ -30,44 +76,146 @@ void ui_detialLight_screen_init(void)
     lv_obj_set_style_bg_color(ui_detialLight, lv_color_hex(0xE5E3E3), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_opa(ui_detialLight, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    // 标题
-    lv_obj_t * title = lv_label_create(ui_detialLight);
-    lv_obj_set_pos(title, 0, 10);
-    lv_obj_set_align(title, LV_ALIGN_TOP_MID);
+    // ── 标题栏 ──
+    lv_obj_t * title_panel = lv_obj_create(ui_detialLight);
+    lv_obj_set_size(title_panel, 230, 36);
+    lv_obj_set_pos(title_panel, 0, 5);
+    lv_obj_set_align(title_panel, LV_ALIGN_TOP_MID);
+    lv_obj_remove_flag(title_panel, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_radius(title_panel, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t * title = lv_label_create(title_panel);
+    lv_obj_center(title);
     lv_label_set_text(title, "Light Sensor");
-    lv_obj_set_style_text_font(title, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    // 开关卡片
-    lv_obj_t * card = lv_obj_create(ui_detialLight);
-    lv_obj_set_size(card, 220, 70);
-    lv_obj_set_pos(card, 0, -20);
-    lv_obj_set_align(card, LV_ALIGN_CENTER);
-    lv_obj_remove_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_radius(card, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(card, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_opa(card, 30, LV_PART_MAIN | LV_STATE_DEFAULT);
+    // ── 实时数据卡片 ──
+    lv_obj_t * data_card = create_card(ui_detialLight, 48, 74);
 
-    ui_lightSwitchLabel = lv_label_create(card);
+    lv_obj_t * current_label = lv_label_create(data_card);
+    lv_obj_set_pos(current_label, 0, -8);
+    lv_obj_set_align(current_label, LV_ALIGN_CENTER);
+    lv_label_set_text(current_label, "Current Level");
+    lv_obj_set_style_text_font(current_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(current_label, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lightValue = lv_label_create(data_card);
+    lv_obj_set_pos(ui_lightValue, 0, 14);
+    lv_obj_set_align(ui_lightValue, LV_ALIGN_CENTER);
+    lv_label_set_text(ui_lightValue, "--.- lx");
+    lv_obj_set_style_text_font(ui_lightValue, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_lightValue, lv_color_hex(0xE37400), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // ── 统计卡片（未来扩展） ──
+    lv_obj_t * stats_card = create_card(ui_detialLight, 128, 58);
+    lv_obj_set_flex_flow(stats_card, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(stats_card, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t * row1 = lv_obj_create(stats_card);
+    lv_obj_set_size(row1, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_remove_flag(row1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(row1, 0, 0);
+    lv_obj_set_style_border_width(row1, 0, 0);
+    lv_obj_set_style_pad_all(row1, 0, 0);
+    lv_obj_set_flex_flow(row1, LV_FLEX_FLOW_ROW);
+
+    lv_obj_t * max_lbl = lv_label_create(row1);
+    lv_label_set_text(max_lbl, "Max:");
+    lv_obj_set_style_text_font(max_lbl, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(max_lbl, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lightMaxVal = lv_label_create(row1);
+    lv_label_set_text(ui_lightMaxVal, "--.-");
+    lv_obj_set_style_text_font(ui_lightMaxVal, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_lightMaxVal, lv_color_hex(0xE37400), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t * min_lbl = lv_label_create(row1);
+    lv_obj_set_style_pad_left(min_lbl, 30, 0);
+    lv_label_set_text(min_lbl, "Min:");
+    lv_obj_set_style_text_font(min_lbl, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(min_lbl, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lightMinVal = lv_label_create(row1);
+    lv_label_set_text(ui_lightMinVal, "--.-");
+    lv_obj_set_style_text_font(ui_lightMinVal, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_lightMinVal, lv_color_hex(0x1A73E8), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t * row2 = lv_obj_create(stats_card);
+    lv_obj_set_size(row2, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_remove_flag(row2, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(row2, 0, 0);
+    lv_obj_set_style_border_width(row2, 0, 0);
+    lv_obj_set_style_pad_all(row2, 0, 0);
+    lv_obj_set_flex_flow(row2, LV_FLEX_FLOW_ROW);
+
+    lv_obj_t * avg_lbl = lv_label_create(row2);
+    lv_label_set_text(avg_lbl, "Avg:");
+    lv_obj_set_style_text_font(avg_lbl, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(avg_lbl, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_lightAvgVal = lv_label_create(row2);
+    lv_label_set_text(ui_lightAvgVal, "--.-");
+    lv_obj_set_style_text_font(ui_lightAvgVal, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_lightAvgVal, lv_color_hex(0x5F6368), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // ── 开关卡片 ──
+    lv_obj_t * switch_card = create_card(ui_detialLight, 192, 46);
+
+    ui_lightSwitchLabel = lv_label_create(switch_card);
     lv_obj_set_pos(ui_lightSwitchLabel, -30, 0);
     lv_obj_set_align(ui_lightSwitchLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_lightSwitchLabel, "Sensor: ON");
-    lv_obj_set_style_text_font(ui_lightSwitchLabel, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_lightSwitchLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    ui_Switch3 = lv_switch_create(card);
+    ui_Switch3 = lv_switch_create(switch_card);
     lv_obj_set_size(ui_Switch3, 50, 25);
     lv_obj_set_pos(ui_Switch3, -30, 0);
     lv_obj_set_align(ui_Switch3, LV_ALIGN_RIGHT_MID);
-    lv_obj_set_state(ui_Switch3, LV_STATE_CHECKED, true);
+    lv_obj_add_state(ui_Switch3, LV_STATE_CHECKED);
 
+    // ── 返回按钮 ──
+    ui_lightBackBtn = lv_button_create(ui_detialLight);
+    lv_obj_set_size(ui_lightBackBtn, 180, 40);
+    lv_obj_set_pos(ui_lightBackBtn, 0, 248);
+    lv_obj_set_align(ui_lightBackBtn, LV_ALIGN_TOP_MID);
+    lv_obj_set_style_radius(ui_lightBackBtn, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_lightBackBtn, lv_color_hex(0x1A73E8), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_lightBackBtn, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(ui_lightBackBtn, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(ui_lightBackBtn, 40, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t * btn_label = lv_label_create(ui_lightBackBtn);
+    lv_obj_center(btn_label);
+    lv_label_set_text(btn_label, "Back");
+    lv_obj_set_style_text_font(btn_label, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(btn_label, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // ── 事件 ──
     lv_obj_add_event_cb(ui_detialLight, ui_event_detialLight, LV_EVENT_GESTURE, NULL);
     lv_obj_add_event_cb(ui_Switch3, ui_event_Switch3, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_add_event_cb(ui_lightBackBtn, ui_event_lightBackBtn, LV_EVENT_CLICKED, NULL);
+
+    // ── 数据刷新定时器 ──
+    light_ui_timer = lv_timer_create(light_ui_timer_cb, 500, NULL);
+
+    light_start();
 }
 
 void ui_detialLight_screen_destroy(void)
 {
+    if (light_ui_timer) {
+        lv_timer_del(light_ui_timer);
+        light_ui_timer = NULL;
+    }
+
     if(ui_detialLight) lv_obj_del(ui_detialLight);
 
     ui_detialLight = NULL;
+    ui_lightValue = NULL;
+    ui_lightMaxVal = NULL;
+    ui_lightMinVal = NULL;
+    ui_lightAvgVal = NULL;
     ui_Switch3 = NULL;
     ui_lightSwitchLabel = NULL;
+    ui_lightBackBtn = NULL;
 }

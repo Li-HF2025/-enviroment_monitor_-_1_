@@ -34,7 +34,7 @@ void ui_main02_screen_init(void)
     lv_obj_set_pos(ui_tempTitle, 0, 10);
     lv_obj_set_align(ui_tempTitle, LV_ALIGN_TOP_MID);
     lv_label_set_text(ui_tempTitle, "Temperature");
-    lv_obj_set_style_text_font(ui_tempTitle, &lv_font_montserrat_22, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_font(ui_tempTitle, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_tempuratureImage = lv_image_create(ui_main02);
     lv_image_set_src(ui_tempuratureImage, &ui_img_temperature_png);
