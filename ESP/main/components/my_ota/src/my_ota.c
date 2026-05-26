@@ -29,6 +29,8 @@
 // JSON解析库头文件
 #include "cJSON.h"
 
+#include "my_nvs.h"
+#include "esp_wifi.h"
 
 #define ONENET_PRODUCT_ID CONFIG_ONENET_PRODUCT_ID
 #define ONENET_ACCESS_KEY CONFIG_ONENET_ACCESS_KEY
@@ -52,6 +54,42 @@ static bool ota_running = false; //防止重复创建OTA任务
 static int  s_ota_progress = 0;  // 当前下载进度百分比，供UI轮询读取
 
 static const char *TAG = "ATO";
+
+
+static uint32_t ota_resume_get_written_len(const char *url){
+    nvs_handle_t h = my_nvs_get_handle("ota_resumption");
+    if (h == 0) return 0;
+    // 读取并对比 URL，不匹配则断点无效
+    size_t len = 256;
+    char saved_url[256] = {0};
+    if (nvs_get_str(h, "ota_url", saved_url, &len) != ESP_OK) {
+        return 0;
+    }
+    if (strcmp(saved_url, url) != 0) {
+        ESP_LOGI(TAG, "断点URL不匹配，从头下载");
+        return 0;
+    }
+
+    uint32_t wr_len = 0;
+    nvs_get_u32(h, "ota_wr_len", &wr_len);
+    ESP_LOGI(TAG, "断点续传: 上次已写入 %"PRIu32" 字节", wr_len);
+    return wr_len;
+}
+
+static void ota_resume_save_progress(const char *url, uint32_t wr_len)
+{
+    nvs_handle_t h = my_nvs_get_handle("ota_resumption");
+    if (h == 0) return;
+
+    nvs_set_str(h, "ota_url", url);
+    nvs_set_u32(h, "ota_wr_len", wr_len);
+    nvs_commit(h);  // 立即落盘，防止断电丢失
+}
+
+static void ota_resume_cleanup(void)
+{
+    my_nvs_erase_all_ns("ota_resumption");  // 清空整个 namespace
+}
 
 static int64_t get_token_expire_time(void)
 {
@@ -408,26 +446,39 @@ static void ota_task(void *pvParameter){
     ESP_LOGI(TAG, "OTA任务开始执行, URL: %s", ota_download_url);
     esp_err_t err;
     esp_err_t ota_finish_err = ESP_OK;
-    int last_reported_step = 0;
+
+    // 关闭WiFi省电，最大化下载速度
+    esp_wifi_set_ps(WIFI_PS_NONE);
 
     if (ota_download_url[0] == '\0') {
         ESP_LOGE(TAG, "下载地址为空，无法启动OTA");
         ota_running = false;
         vTaskDelete(NULL);
     }
-
+    int last_reported_step = 0;
+    uint32_t last_saved_wr_len = 0;
+    uint32_t wr_len=0;
+    wr_len = ota_resume_get_written_len(ota_download_url);
+    if (firmware_size > 0) {
+        s_ota_progress = (wr_len * 100) / firmware_size;
+        last_reported_step = s_ota_progress;
+    }
     //配置HTTP客户端（使用check_task获取的动态下载地址）
     esp_http_client_config_t config = {
         .url = ota_download_url,
         .cert_pem = NULL,
         .timeout_ms = 5000,
         .keep_alive_enable = true,
-        .buffer_size = 1024,
+        .buffer_size = 4096,
         .skip_cert_common_name_check = true,
     };
+
     esp_https_ota_config_t ota_config={
         .http_config = &config,
         .http_client_init_cb = ota_http_client_init_cb,
+        .ota_image_bytes_written = wr_len,
+        .ota_resumption = true,
+        .partial_http_download = false
     };
     esp_https_ota_handle_t https_ota_handle = NULL;
     // 开始OTA下载流程（esp_https_ota_begin对http:// URL会自动降级为HTTP）
@@ -469,39 +520,52 @@ static void ota_task(void *pvParameter){
         if (firmware_size > 0) {
             size_t len = esp_https_ota_get_image_len_read(https_ota_handle);
             int step = (len * 100) / firmware_size;
-            s_ota_progress = step;  // 实时更新，供UI轮询
+            s_ota_progress = step;
+
+            // 每变化 10% 上报平台
             if (step - last_reported_step >= 10) {
                 onenet_ota_upload_status(task_id, step);
                 last_reported_step = step;
             }
-            ESP_LOGI(TAG, "Download progress: %d%% (%d/%d)", step, len, firmware_size);
+
+            // 每写入 64KB 保存一次断点（避免过于频繁写 NVS）
+            if (len - last_saved_wr_len >= 64 * 1024) {
+                ota_resume_save_progress(ota_download_url, len);
+                last_saved_wr_len = len;
+            }
+
+            static int last_logged_step = -1;
+            if (step != last_logged_step) {
+                ESP_LOGI(TAG, "Download: %d%% (%d/%d)", step, len, firmware_size);
+                last_logged_step = step;
+            }
         }
     }
 
-    // 下载循环结束，检查是否完整接收
     if (!esp_https_ota_is_complete_data_received(https_ota_handle)) {
-        ESP_LOGE(TAG, "Complete data was not received.");
+        ESP_LOGE(TAG, "数据接收不完整，断点已保存，下次重试");
         onenet_ota_upload_status(task_id, 106);
+        // 不调 cleanup，保留断点
         goto ota_end;
     }
 
-    // 上报下载完成
+    //上报更新状态
     onenet_ota_upload_status(task_id, 100);
-    // 完成OTA升级，验证固件并更新引导分区
+
     ota_finish_err = esp_https_ota_finish(https_ota_handle);
     if (ota_finish_err == ESP_OK) {
-        ESP_LOGI(TAG, "OTA更新完成");
+        ota_resume_cleanup(); //清理断点
+        ESP_LOGI(TAG, "OTA完成，断点已清理");
         onenet_ota_upload_status(task_id, 201);
         vTaskDelay(1000 / portTICK_PERIOD_MS);
-        esp_restart();
+        esp_restart();//@TODO 之后换成用户手动重启
     } else {
+        // 失败保留断点，下次重试
+        ESP_LOGE(TAG, "OTA finish failed 0x%x, 断点已保留", ota_finish_err);
         if (ota_finish_err == ESP_ERR_OTA_VALIDATE_FAILED) {
-            ESP_LOGE(TAG, "OTA更新失败：固件校验不通过");
             onenet_ota_upload_status(task_id, 205);
         }
-        ESP_LOGE(TAG, "ESP_HTTPS_OTA upgrade failed 0x%x", ota_finish_err);
-        ota_running = false;
-        vTaskDelete(NULL);
+        goto ota_end;
     }
 
 ota_end:
@@ -594,4 +658,5 @@ bool ota_is_running(void)
 void ato_init(void){
     ESP_LOGI(TAG, "ATO模块初始化开始");
     ESP_ERROR_CHECK(esp_event_handler_register(ESP_HTTPS_OTA_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));// 注册OTA事件处理程序
+    my_nvs_open_ns("ota_resumption");
 }

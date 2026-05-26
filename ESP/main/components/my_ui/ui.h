@@ -35,7 +35,6 @@ extern "C" {
 
 ///////////////////// VARIABLES ////////////////////
 
-extern lv_anim_t * screenLockBall_Animation(lv_obj_t * TargetObject, int delay);
 extern lv_anim_t * timeKeyboard_Animation(lv_obj_t * TargetObject, int delay);
 
 // EVENTS
