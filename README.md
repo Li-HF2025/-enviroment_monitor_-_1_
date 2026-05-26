@@ -513,7 +513,7 @@ XPT2046 返回的原始坐标范围经实测约为 X: 10~225, Y: 10~310，通过
                ├──► Wi-Fi 设置页 ── AP 扫描列表 + 密码输入键盘 + 连接按钮
                └──► OTA 详情页 ── 当前版本/目标版本/固件大小 + 检查更新 + 下载进度条
 
-空闲 5 分钟 ──► 锁屏页 ── 点击任意位置解锁
+空闲 5 分钟 ──► 锁屏页 ── 实时时间/日期 + 呼吸光晕动画 + 点击或左滑解锁
 ```
 
 #### 完整界面清单
@@ -529,7 +529,7 @@ XPT2046 返回的原始坐标范围经实测约为 X: 10~225, Y: 10~310，通过
 | 设置 | `ui_setting.c` | — | 下滑手势 |
 | Wi-Fi 设置 | `ui_WIFIsetting.c` | `wifi_scan.c` | 点击 WiFi 标签 |
 | OTA 详情 | `ui_detailOTA.c` | `my_ota.c` | 点击 OTA 标签 |
-| 锁屏 | `ui_ScreenLock.c` | `screen_idle_lock.c` | 5 分钟无操作 |
+| 锁屏 | `ui_ScreenLock.c` | `screen_idle_lock.c` | 5 分钟无操作（显示实时时钟+呼吸动画） |
 
 #### 线程安全
 
@@ -728,26 +728,50 @@ float temp = temp_raw / 10.0f;
 #### 初始化流程
 
 ```c
-nvs_flash_init();  // 首次调用初始化 NVS 子系统
-// 如果 Flash 被擦除过或分区表变更
-if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-    nvs_flash_erase();  // ⚠️ 清除所有 NVS 数据
-    nvs_flash_init();
-}
+my_nvs_init();  // 初始化 NVS 子系统 + 打开 "storage" 默认 namespace
+// 内部自动处理 Flash 擦除和分区表兼容
 nvs_open("storage", NVS_READWRITE, &handle);
+// 注册到 namespace 注册表 (slot 0)
+```
+
+#### 多 Namespace 注册表
+
+`my_nvs` 封装了一个轻量级的 namespace 注册表（最多 8 个槽位），统一管理所有 NVS 句柄的生命周期：
+
+| API | 说明 |
+|-----|------|
+| `my_nvs_open_ns(ns)` | 按名称打开 namespace，自动注册到表中，已存在则跳过 |
+| `my_nvs_close_ns(ns)` | 按名称关闭 namespace，从表中移除 |
+| `my_nvs_get_handle(ns)` | 按名称查找句柄，未找到返回 0 |
+| `my_nvs_register_handle(ns, h)` | 注册外部已打开的句柄 |
+| `my_nvs_close_all()` | 关闭所有已注册的 namespace（关机/重启前清理） |
+| `my_nvs_erase_all_ns(ns)` | 擦除指定 namespace 的全部数据并提交 |
+
+**使用示例（OTA 断点续传）：**
+```c
+my_nvs_open_ns("ota_resumption");                  // 打开独立 namespace
+nvs_handle_t h = my_nvs_get_handle("ota_resumption"); // 按名获取句柄
+nvs_set_u32(h, "ota_wr_len", written_bytes);      // 写入断点
+nvs_commit(h);                                     // 立即落盘
+my_nvs_erase_all_ns("ota_resumption");             // OTA 成功后清理
 ```
 
 #### 当前存储项
 
-| Key | 类型 | 写入方 | 写入时机 |
-|-----|------|--------|---------|
-| `wifi_ssid` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
-| `wifi_pass` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
-| `app_version` | string | `get_app_verion()` | OTA 模块读取，需要外部写入 |
+| Namespace | Key | 类型 | 写入方 | 写入时机 |
+|-----------|-----|------|--------|---------|
+| `storage` | `wifi_ssid` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
+| `storage` | `wifi_pass` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
+| `storage` | `app_version` | string | `get_app_verion()` | OTA 模块读取，需要外部写入 |
+| `ota_resumption` | `ota_url` | string | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
+| `ota_resumption` | `ota_wr_len` | u32 | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
 
 #### 封装层的价值
 
-直接使用 ESP-IDF 的 NVS API 需要管理 `nvs_handle_t` 句柄、每次读写传入句柄。封装后统一管理全局句柄和错误处理，未来如果切换存储方式（如 SPIFFS 或 LittleFS），只需改 `my_nvs` 内部实现。
+从最初的简单 set/get 封装发展为统一 namespace 管理器，支持：
+- **句柄生命周期管理**：打开/关闭/查找统一入口，避免句柄泄漏
+- **数据隔离**：不同模块使用独立 namespace（如 OTA 断点使用 `ota_resumption`），擦除时互不影响
+- **可切换性**：未来切换存储方式（SPIFFS/LittleFS）只需改 `my_nvs` 内部实现
 
 ---
 
@@ -759,14 +783,36 @@ nvs_open("storage", NVS_READWRITE, &handle);
 1. 上报版本 → POST /fuse-ota/{pid}/{dev}/version
        Body: {"s_version":"V1.0", "f_version":"V1.0"}
 2. 查询任务 → GET  /fuse-ota/{pid}/{dev}/check?type=...&version=...
-       响应包含 target(目标版本) 和 tid(任务ID)
-3. 下载固件 → HTTPS GET, esp_https_ota_perform() 分块下载
-4. 校验固件 → 比对版本号(相同则拒绝) + 校验固件签名
-5. 刷入Flash → 自动写入 OTA 分区
-6. 上报状态 → POST /fuse-ota/{pid}/{dev}/{tid}/status
-       Body: {"step": 50} 或 {"step": 100}
-7. 重启    → esp_restart()
+       响应包含 target(目标版本)、tid(任务ID)、md5(固件校验码)
+3. 检查断点 → 查询 ota_resumption namespace，MD5 匹配则从上次断点继续
+4. 下载固件 → HTTPS GET, esp_https_ota_perform() 分块下载（buffer=4096B）
+5. 保存进度 → 每 64KB 将 URL + 已写入字节数写入 ota_resumption namespace
+6. 校验固件 → 比对版本号(相同则拒绝) + 校验固件签名
+7. 刷入Flash → 自动写入 OTA 分区
+8. 上报状态 → POST /fuse-ota/{pid}/{dev}/{tid}/status
+       Body: {"step": 50~100}
+9. 清理断点 → 成功后擦除 ota_resumption namespace
+10. 重启    → esp_restart()
 ```
+
+#### 断点续传机制
+
+OTA 下载过程中断网或断电后，下次启动可从中断位置继续下载，无需从头开始：
+
+| 环节 | 说明 |
+|------|------|
+| 存储位置 | 独立 namespace `ota_resumption`（`my_nvs_open_ns`） |
+| 保存频率 | 每写入 64KB 保存一次（避免过于频繁写 Flash） |
+| 匹配标识 | 当前用 URL 匹配（⚠️ 已知问题：OneNET 每次分配新 task_id → URL 变化） |
+| 恢复流程 | `ato_init()` → `my_nvs_open_ns("ota_resumption")` → `ota_task()` 中读取已写入字节数 |
+| 清理时机 | OTA 成功 → `ota_resume_cleanup()` → `my_nvs_erase_all_ns("ota_resumption")` |
+| 失败保留 | 下载中断/校验失败 → 保留断点，下次重试 |
+
+#### 下载性能优化
+
+- **关闭 Wi-Fi 省电模式**：`esp_wifi_set_ps(WIFI_PS_NONE)`，最大化下载吞吐
+- **HTTP 缓冲区增大**：`buffer_size` 从 1024 → 4096 字节，减少 HTTP 分块开销
+- **日志去重**：仅在进度百分比变化时才打印日志，避免串口洪水
 
 #### Token 鉴权机制
 
@@ -787,12 +833,14 @@ version=2022-05-01&res=products%2F{pid}&et={timestamp}&method=sha256&sign={base6
 
 - 版本相同拒绝升级（防止无限循环）
 - 固件签名由 esp_https_ota 内部验证
-- 下载中断（网络断开等）→ `esp_https_ota_abort()` 清理，不影响现有固件
+- 下载中断（网络断开等）→ 断点自动保存到 NVS，下次继续，不影响现有固件
+- `esp_https_ota_abort()` 可在任意时刻安全中止下载
 - 写入过程中断电 → OTA 分区标记为无效，bootloader 回退到原固件
+- 校验失败 → 保留断点，下次从已有位置继续下载
 
 #### 当前状态
 
-底层的 token 生成、版本上报、任务查询、状态上报、固件下载烧写功能均已实现。UI 端支持 OTA 下载进度条实时显示（通过 `ota_get_progress()` / `ota_is_running()` 轮询），每 10% 上报一次进度给平台。自动触发流程（查询到任务后提示用户并启动下载）待补完。
+底层 token 生成、版本上报、任务查询、状态上报、固件下载烧写、断点续传功能均已实现。UI 端支持 OTA 下载进度条实时显示（`ota_get_progress()` / `ota_is_running()` 轮询，每 500ms），每 10% 上报进度给平台。自动触发流程待补完。详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)。
 
 ---
 
@@ -802,6 +850,7 @@ version=2022-05-01&res=products%2F{pid}&et={timestamp}&method=sha256&sign={base6
 environmental_monitoring/
 ├── ESP/                                  # ESP32-S3 工程 (ESP-IDF)
 │   ├── CMakeLists.txt                    # 顶层 CMake
+│   ├── OTA_ENHANCEMENT_PLAN.md            # OTA 功能增强计划
 │   ├── main/
 │   │   ├── CMakeLists.txt                # 主组件注册（依赖所有子组件）
 │   │   ├── main.c                        # app_main 入口
@@ -852,17 +901,17 @@ environmental_monitoring/
 │   │       │       ├── ui_detailTime.c   # 时间详情
 │   │       │       ├── ui_detailTemperature.c  # 温湿度详情
 │   │       │       ├── ui_detialDB.c     # 分贝详情
-│   │       │       ├── ui_detialLight.c  # 光照详情（预留）
+│   │       │       ├── ui_detialLight.c  # 光照详情
 │   │       │       ├── ui_setting.c      # 设置界面
 │   │       │       ├── ui_WIFIsetting.c  # Wi-Fi 设置
 │   │       │       ├── ui_detailOTA.c    # OTA 详情
 │   │       │       └── ui_ScreenLock.c   # 锁屏界面
-│   │       ├── my_nvs/                   # NVS 持久化存储封装
+│   │       ├── my_nvs/                   # NVS 持久化存储（多 namespace 注册表）
 │   │       │   ├── inc/my_nvs.h
 │   │       │   └── src/my_nvs.c
-│   │       └── my_ota/                   # OTA 固件升级
+│   │       └── my_ota/                   # OTA 固件升级（断点续传）
 │   │           ├── inc/my_ota.h
-│   │           └── src/my_ota.c          # Token + API + 固件下载
+│   │           └── src/my_ota.c          # Token + API + 固件下载 + 断点保存/恢复
 │   └── managed_components/               # ESP-IDF 组件管理器自动下载
 │       ├── lvgl__lvgl/                   # LVGL v9.2.2
 │       ├── espressif__esp_lcd_ili9341/   # ILI9341 驱动
@@ -936,7 +985,8 @@ pio device monitor         # 串口监控
 2. **协议优化** — 载荷使用字符串命令（`"DB Init"`），应改为子命令码
 3. **状态管理** — 全局变量通过 extern 跨组件暴露，应封装为访问函数
 4. **STM32 侧** — 传感器无条件自启动，应改为由 ESP32 通过协议控制
-5. **OTA 自动流程** — 底层 API 已就绪，查询→下载→重启的自动流程待补完
+5. **OTA 断点匹配** — 当前用 URL 匹配断点，OneNET 每次分配新 task_id 导致 URL 变化，应改为用固件 MD5 匹配（详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)）
+6. **OTA 自动流程** — 底层 API 已就绪，查询→下载→重启的自动流程待补完
 
 ---
 
