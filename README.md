@@ -763,7 +763,7 @@ my_nvs_erase_all_ns("ota_resumption");             // OTA 成功后清理
 | `storage` | `wifi_ssid` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
 | `storage` | `wifi_pass` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
 | `storage` | `app_version` | string | `get_app_verion()` | OTA 模块读取，需要外部写入 |
-| `ota_resumption` | `ota_url` | string | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
+| `ota_resumption` | `ota_md5` | string (33B) | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
 | `ota_resumption` | `ota_wr_len` | u32 | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
 
 #### 封装层的价值
@@ -803,8 +803,9 @@ OTA 下载过程中断网或断电后，下次启动可从中断位置继续下�
 |------|------|
 | 存储位置 | 独立 namespace `ota_resumption`（`my_nvs_open_ns`） |
 | 保存频率 | 每写入 64KB 保存一次（避免过于频繁写 Flash） |
-| 匹配标识 | 当前用 URL 匹配（⚠️ 已知问题：OneNET 每次分配新 task_id → URL 变化） |
-| 恢复流程 | `ato_init()` → `my_nvs_open_ns("ota_resumption")` → `ota_task()` 中读取已写入字节数 |
+| 匹配标识 | 用固件 MD5 匹配（`check_task` 返回的 `md5` 字段），同一次升级任务 MD5 固定不变 |
+| 恢复流程 | `ato_init()` → `my_nvs_open_ns("ota_resumption")` → `ota_task()` 中按 MD5 读取已写入字节数 |
+| 兼容清理 | `ato_init()` 自动检测旧版 URL 格式数据并清理，确保迁移平滑 |
 | 清理时机 | OTA 成功 → `ota_resume_cleanup()` → `my_nvs_erase_all_ns("ota_resumption")` |
 | 失败保留 | 下载中断/校验失败 → 保留断点，下次重试 |
 
@@ -985,8 +986,8 @@ pio device monitor         # 串口监控
 2. **协议优化** — 载荷使用字符串命令（`"DB Init"`），应改为子命令码
 3. **状态管理** — 全局变量通过 extern 跨组件暴露，应封装为访问函数
 4. **STM32 侧** — 传感器无条件自启动，应改为由 ESP32 通过协议控制
-5. **OTA 断点匹配** — 当前用 URL 匹配断点，OneNET 每次分配新 task_id 导致 URL 变化，应改为用固件 MD5 匹配（详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)）
-6. **OTA 自动流程** — 底层 API 已就绪，查询→下载→重启的自动流程待补完
+5. **OTA 自动流程** — 底层 API 已就绪，查询→下载→重启的自动流程待补完
+6. **固件回滚** — 新固件崩溃时自动回滚到旧版本（bootloader 侧已支持，检查点逻辑待实现，详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)）
 
 ---
 
@@ -1026,6 +1027,8 @@ sequenceDiagram
     SCR->>SCR: 创建lvgl_port_task+触摸驱动
     SCR->>SCR: ui_init() 创建所有界面对象
     deactivate SCR
+
+    APP->>APP: ato_init() 注册OTA事件+打开ota_resumption namespace
 
     Note over STM: STM32同步上电启动
     STM->>STM: HAL+时钟+GPIO+DMA+ADC+UART初始化
