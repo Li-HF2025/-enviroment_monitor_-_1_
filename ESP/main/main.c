@@ -16,6 +16,7 @@ void app_main(void)
     wifi_start();
     // mqtt_app_start();
     screen_init();
+    ato_init();
 
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);

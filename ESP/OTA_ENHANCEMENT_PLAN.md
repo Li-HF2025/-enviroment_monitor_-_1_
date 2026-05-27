@@ -285,16 +285,28 @@ ota_end:
 
 ---
 
-## 优先级 2：固件失败自动回滚 (App Rollback)
+## 优先级 2：固件回滚 (App Rollback) — 自动回滚 + 手动回滚
 
-**价值**: 新固件有 bug 时，bootloader 自动切回旧固件，防止设备变砖。
+**价值**: 自动回滚防止设备变砖；手动回滚满足用户偏好（想回到老版本）。
+
+**原理对比**:
+| 特性 | 自动回滚 | 手动回滚 |
+|------|----------|----------|
+| 触发者 | Bootloader（被动） | 用户（主动） |
+| 场景 | 新固件崩溃/卡死 | 用户不习惯新版本 |
+| 实现层 | Bootloader + `PENDING_VERIFY` 状态 | `esp_ota_set_boot_partition()` |
+| 依赖 | `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` | 自动回滚启用 + NVS 记录旧版本信息 |
+
+---
+
+### 2.A 自动回滚 (Auto Rollback)
 
 **原理**:
 - Bootloader 烧写新固件后标记为 `ESP_OTA_IMG_PENDING_VERIFY`
 - 新固件启动后，在"检查点"主动调用 `esp_ota_mark_app_valid_cancel_rollback()` 确认正常
 - 若在超时前崩溃，bootloader 自动回滚
 
-### 2.1 启用 bootloader 回滚
+#### 2.A.1 启用 bootloader 回滚
 
 在 `sdkconfig.defaults` 中添加：
 ```
@@ -302,7 +314,7 @@ CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=n
 ```
 
-### 2.2 在主程序中添加检查点
+#### 2.A.2 在主程序中添加检查点
 
 在 `app_main()` 中，WiFi 连接成功 + MQTT 连接成功 + 传感器初始化完成后调用：
 
@@ -321,6 +333,154 @@ CONFIG_BOOTLOADER_APP_ANTI_ROLLBACK=n
 ```
 
 > **检查点位置建议**：放在所有关键功能初始化完成后。不要放在 WiFi 连接之前，因为 WiFi 连不上说明固件可能有问题。
+
+---
+
+### 2.B 手动回滚 (Manual Rollback)
+
+**原理**:
+- OTA 成功后、重启前，将「当前运行的分区信息」保存到 NVS（作为"上一个版本"）
+- 新固件启动后，读取 NVS 中的 `prev_version` 和 `prev_partition_label`
+- 若存在上一个版本，UI 显示"回退到 Vx.x.x"按钮
+- 用户点击后，调用 `esp_ota_set_boot_partition(prev_partition)` 并重启，回到老版本
+- 回滚后的老版本启动时同样经过 `PENDING_VERIFY` 检查点（自动回滚安全网依然生效）
+
+#### 2.B.1 NVS 数据结构（namespace: `"ota"`）
+
+| Key | 类型 | 说明 |
+|-----|------|------|
+| `prev_label` | string | 上一个固件所在分区名，如 `"ota_0"` |
+| `prev_version` | string | 上一个固件的版本号，如 `"1.0.0"` |
+
+#### 2.B.2 OTA 成功后保存旧版本信息
+
+在 `ota_task()` 中，`esp_https_ota_finish()` 成功返回后、`esp_restart()` 之前：
+
+```c
+// 保存当前运行的固件信息，作为"上一个版本"供手动回滚使用
+if (ota_finish_err == ESP_OK) {
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    const esp_app_desc_t *app_desc = esp_app_get_description();
+    if (running && app_desc) {
+        nvs_handle_t h = my_nvs_get_handle("ota");
+        if (h != 0) {
+            nvs_set_str(h, "prev_label", running->label);
+            nvs_set_str(h, "prev_version", app_desc->version);
+            nvs_commit(h);
+        }
+    }
+    ota_resume_cleanup();
+    // ... 上报状态 + esp_restart()
+}
+```
+
+#### 2.B.3 新增公开 API（`my_ota.h` / `my_ota.c`）
+
+```c
+// === my_ota.h 新增声明 ===
+
+/**
+ * @brief 获取上一个固件的版本号
+ * @return 版本号字符串，如果没有则返回 NULL
+ */
+const char *ota_get_previous_version(void);
+
+/**
+ * @brief 手动回滚到上一个固件版本
+ * @note 会调用 esp_ota_set_boot_partition() 然后 esp_restart()
+ * @return ESP_OK 表示已触发重启；ESP_ERR_NOT_FOUND 表示没有可回滚的版本
+ */
+esp_err_t ota_rollback_to_previous(void);
+```
+
+```c
+// === my_ota.c 新增实现 ===
+
+const char *ota_get_previous_version(void)
+{
+    nvs_handle_t h = my_nvs_get_handle("ota");
+    if (h == 0) return NULL;
+
+    static char prev_version[64];
+    size_t len = sizeof(prev_version);
+    memset(prev_version, 0, sizeof(prev_version));
+    if (nvs_get_str(h, "prev_version", prev_version, &len) != ESP_OK) {
+        return NULL;
+    }
+    return prev_version;
+}
+
+esp_err_t ota_rollback_to_previous(void)
+{
+    nvs_handle_t h = my_nvs_get_handle("ota");
+    if (h == 0) return ESP_ERR_NOT_FOUND;
+
+    // 读取旧分区名
+    char prev_label[16];
+    size_t len = sizeof(prev_label);
+    memset(prev_label, 0, sizeof(prev_label));
+    if (nvs_get_str(h, "prev_label", prev_label, &len) != ESP_OK) {
+        ESP_LOGW(TAG, "手动回滚: 未找到上一个固件信息");
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    // 查找对应分区
+    const esp_partition_t *prev = esp_partition_find_first(
+        ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, prev_label);
+    if (prev == NULL) {
+        ESP_LOGE(TAG, "手动回滚: 找不到分区 %s", prev_label);
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    // 防止回滚到当前正在运行的分区（用户可能已经回滚过一次）
+    const esp_partition_t *running = esp_ota_get_running_partition();
+    if (running && strcmp(running->label, prev_label) == 0) {
+        ESP_LOGW(TAG, "手动回滚: 当前已在旧版本运行，无需重复回滚");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    ESP_LOGI(TAG, "手动回滚: 设置启动分区为 %s，即将重启", prev_label);
+    esp_err_t err = esp_ota_set_boot_partition(prev);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "手动回滚: esp_ota_set_boot_partition 失败 0x%x", err);
+        return err;
+    }
+
+    // 清理 prev 记录，避免重启后再次回滚陷入循环
+    nvs_erase_key(h, "prev_label");
+    nvs_erase_key(h, "prev_version");
+    nvs_commit(h);
+
+    vTaskDelay(500 / portTICK_PERIOD_MS);
+    esp_restart();
+    // unreachable
+    return ESP_OK;
+}
+```
+
+#### 2.B.4 前端 UI 集成要点
+
+- 在设置/关于页面调用 `ota_get_previous_version()` 
+- 若返回非 NULL：显示"回退到 Vx.x.x"按钮
+- 若返回 NULL：隐藏按钮（首次烧录、已回滚过等场景）
+- 点击按钮 → 弹确认框 → 调用 `ota_rollback_to_previous()`
+- 注意：该函数调用 `esp_restart()` 不会返回，UI 上可直接提示"正在重启..."
+
+#### 2.B.5 手动回滚与自动回滚的协作
+
+```
+场景: 用户从 V1.0 (ota_0) OTA 升级到 V1.1 (ota_1)
+
+1. OTA 成功后保存: prev_label="ota_0", prev_version="1.0.0"
+2. 重启到 V1.1 → PENDING_VERIFY 检查点通过 → 正常运行
+3. 用户不习惯 V1.1 → 点"回退到 V1.0.0"
+4. esp_ota_set_boot_partition(ota_0) → 重启
+5. 回到 V1.0 → PENDING_VERIFY 检查点通过 → 正常运行
+   （自动回滚安全网对新启动的 V1.0 同样有效）
+6. prev 记录已在步骤 3 中清除，不会再次触发回滚
+```
+
+> **边界情况**：如果用户在 V1.0 上再次 OTA 到 V2.0，`prev_label` 会被更新为当前运行分区（ota_0），用户可以回退到 V1.0。手动回滚只在最近一次 OTA 的"上一版本"之间切换，不维护完整历史链。
 
 ---
 
@@ -400,11 +560,12 @@ esp_https_ota_config_t ota_config = {
 
 | 步骤 | 功能 | 改动量 | 涉及文件 | 依赖 |
 |------|------|--------|----------|------|
-| 1 | 断点续传 | ~80 行（新增辅助函数 + 改 ota_task） | `my_ota.c` | 新版 my_nvs |
-| 2 | 失败回滚 | 2 行配置 + 6 行代码 | `sdkconfig.defaults`, `main.c` | 无 |
+| 1 | 断点续传 | ~80 行 | `my_ota.c` | 新版 my_nvs |
+| 2A | 自动回滚 | 2 行配置 + 6 行代码 | `sdkconfig.defaults`, `main.c` | 无 |
+| 2B | 手动回滚 | ~60 行新增 API + UI 对接 | `my_ota.h`, `my_ota.c`, UI 层 | 步骤 2A（CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE） |
 | 3 | WiFi 省电优化 | 2 行代码 | `my_ota.c` | 无 |
 | 4 | 部分 HTTP 下载 | 3 行配置 | `my_ota.c` | 步骤 1 完成 |
 | 5 | CA 证书 | ~10 行 + 证书文件 | `my_ota.c`, `CMakeLists.txt` | 需确认 OneNET 支持 |
 | 6 | Kconfig | 追加若干配置项 | `my_ota/Kconfig` | 无 |
 
-**建议一次性完成步骤 1+2+3+4**，它们改的都是同一个文件 (`my_ota.c`) 的同一个函数 (`ota_task`)，合并做一次改动最高效。步骤 5 需要确认 OneNET HTTPS 支持后再做。步骤 6 可后续逐步添加。
+**建议一次性完成步骤 2A+2B**，自动回滚是手动回滚的前提（需要 `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`），两者的 NVS 和 API 设计紧密耦合。手动回滚的 UI 对接部分由 UI 层单独完成。步骤 3+4 可之后再做。

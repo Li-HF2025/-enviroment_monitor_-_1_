@@ -53,20 +53,28 @@ static int  firmware_size = 0;   //固件大小（字节）
 static bool ota_running = false; //防止重复创建OTA任务
 static int  s_ota_progress = 0;  // 当前下载进度百分比，供UI轮询读取
 
+static char firmware_md5[33];//OTA升级时的md5用于断点续传
+
 static const char *TAG = "ATO";
 
 
-static uint32_t ota_resume_get_written_len(const char *url){
+static uint32_t ota_resume_get_written_len(const char *md5){
+    // 读取并对比 md5
+    if (md5 == NULL || md5[0] == '\0') return 0;
+
     nvs_handle_t h = my_nvs_get_handle("ota_resumption");
-    if (h == 0) return 0;
-    // 读取并对比 URL，不匹配则断点无效
-    size_t len = 256;
-    char saved_url[256] = {0};
-    if (nvs_get_str(h, "ota_url", saved_url, &len) != ESP_OK) {
+    if(h == 0) {
+        ESP_LOGW(TAG, "断点续传: namespace ota_resumption 未打开");
         return 0;
     }
-    if (strcmp(saved_url, url) != 0) {
-        ESP_LOGI(TAG, "断点URL不匹配，从头下载");
+    size_t len = 33;
+    char saved_md5[33] = {0};
+    if (nvs_get_str(h, "ota_md5", saved_md5, &len) != ESP_OK) {
+        ESP_LOGW(TAG, "断点续传: NVS中无有效断点数据，从头下载");
+        return 0;
+    }
+    if (strcmp(saved_md5, md5) != 0) {
+        ESP_LOGI(TAG, "断点MD5不匹配（新升级任务），从头下载");
         return 0;
     }
 
@@ -76,12 +84,12 @@ static uint32_t ota_resume_get_written_len(const char *url){
     return wr_len;
 }
 
-static void ota_resume_save_progress(const char *url, uint32_t wr_len)
+static void ota_resume_save_progress(const char *md5, uint32_t wr_len)
 {
     nvs_handle_t h = my_nvs_get_handle("ota_resumption");
     if (h == 0) return;
 
-    nvs_set_str(h, "ota_url", url);
+    nvs_set_str(h, "ota_md5", md5);
     nvs_set_u32(h, "ota_wr_len", wr_len);
     nvs_commit(h);  // 立即落盘，防止断电丢失
 }
@@ -342,6 +350,10 @@ esp_err_t  onenet_ota_check_task(const char* type,const char* version)
             cJSON* target_js = cJSON_GetObjectItem(data_js,"target");
             cJSON* tid_js = cJSON_GetObjectItem(data_js,"tid");
             cJSON* size_js = cJSON_GetObjectItem(data_js,"size");
+            cJSON* md5_js = cJSON_GetObjectItem(data_js,"md5");
+            if(md5_js){
+                snprintf(firmware_md5, sizeof(firmware_md5), "%s",cJSON_GetStringValue(md5_js));
+            }
             if(code_js && cJSON_GetNumberValue(code_js) == 0)
             {
                 if(target_js && tid_js)
@@ -458,7 +470,7 @@ static void ota_task(void *pvParameter){
     int last_reported_step = 0;
     uint32_t last_saved_wr_len = 0;
     uint32_t wr_len=0;
-    wr_len = ota_resume_get_written_len(ota_download_url);
+    wr_len = ota_resume_get_written_len(firmware_md5);
     if (firmware_size > 0) {
         s_ota_progress = (wr_len * 100) / firmware_size;
         last_reported_step = s_ota_progress;
@@ -530,7 +542,7 @@ static void ota_task(void *pvParameter){
 
             // 每写入 64KB 保存一次断点（避免过于频繁写 NVS）
             if (len - last_saved_wr_len >= 64 * 1024) {
-                ota_resume_save_progress(ota_download_url, len);
+                ota_resume_save_progress(firmware_md5, len);
                 last_saved_wr_len = len;
             }
 
@@ -659,4 +671,15 @@ void ato_init(void){
     ESP_LOGI(TAG, "ATO模块初始化开始");
     ESP_ERROR_CHECK(esp_event_handler_register(ESP_HTTPS_OTA_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL));// 注册OTA事件处理程序
     my_nvs_open_ns("ota_resumption");
+
+    // 清理旧版脏数据（此前用URL代替MD5保存，URL长度>33字节会导致nvs_get_str失败）
+    nvs_handle_t h = my_nvs_get_handle("ota_resumption");
+    if (h != 0) {
+        size_t len = 33;
+        char test[33];
+        if (nvs_get_str(h, "ota_md5", test, &len) != ESP_OK) {
+            ESP_LOGW(TAG, "检测到旧版断点数据格式不兼容，自动清理");
+            my_nvs_erase_all_ns("ota_resumption");
+        }
+    }
 }
