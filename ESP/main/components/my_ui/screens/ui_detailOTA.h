@@ -25,6 +25,11 @@ extern lv_obj_t * ui_checkUpdateButtonLabel;
 extern lv_obj_t * ui_otaStatusLabel;
 extern lv_obj_t * ui_progressBar;
 extern lv_obj_t * ui_progressLabel;
+extern lv_obj_t * ui_previousLabel;
+extern lv_obj_t * ui_previousValue;
+extern void ui_event_rollback(lv_event_t * e);
+extern lv_obj_t * ui_rollbackButton;
+extern lv_obj_t * ui_rollbackButtonLabel;
 // CUSTOM VARIABLES
 
 #ifdef __cplusplus

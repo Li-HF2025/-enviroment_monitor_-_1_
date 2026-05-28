@@ -18,6 +18,9 @@ void app_main(void)
     screen_init();
     ato_init();
 
+    // 初始化完成后验证固件存活（自动回滚检查点）
+    ato_validate_app();
+
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }

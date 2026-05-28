@@ -21,6 +21,10 @@ lv_obj_t * ui_checkUpdateButtonLabel = NULL;
 lv_obj_t * ui_otaStatusLabel = NULL;
 lv_obj_t * ui_progressBar = NULL;
 lv_obj_t * ui_progressLabel = NULL;
+lv_obj_t * ui_previousLabel = NULL;
+lv_obj_t * ui_previousValue = NULL;
+lv_obj_t * ui_rollbackButton = NULL;
+lv_obj_t * ui_rollbackButtonLabel = NULL;
 static lv_timer_t * s_ota_status_clear_timer = NULL;
 static lv_timer_t * s_ota_progress_timer = NULL;
 
@@ -129,6 +133,22 @@ void ui_event_checkUpdate(lv_event_t * e)
     }
 }
 
+void ui_event_rollback(lv_event_t * e)
+{
+    if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+        const char *prev_ver = ota_get_previous_version();
+        if (prev_ver == NULL || prev_ver[0] == '\0') {
+            ui_ota_show_status_with_timeout("No previous version");
+            return;
+        }
+        ui_ota_show_status_with_timeout("Rolling back...");
+        esp_err_t err = ota_rollback_to_previous();
+        if (err != ESP_OK) {
+            ui_ota_show_status_with_timeout("Rollback failed");
+        }
+    }
+}
+
 void ui_event_detailOTA(lv_event_t * e)
 {
     lv_event_code_t event_code = lv_event_get_code(e);
@@ -161,14 +181,14 @@ void ui_detailOTA_screen_init(void)
 
     // ── 版本信息卡片 ──
     ui_versionPanel = lv_obj_create(ui_detailOTA);
-    lv_obj_set_size(ui_versionPanel, 230, 90);
+    lv_obj_set_size(ui_versionPanel, 230, 115);
     lv_obj_set_pos(ui_versionPanel, 0, 48);
     lv_obj_set_align(ui_versionPanel, LV_ALIGN_TOP_MID);
     lv_obj_remove_flag(ui_versionPanel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(ui_versionPanel, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_width(ui_versionPanel, 3, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_shadow_opa(ui_versionPanel, 30, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_pad_all(ui_versionPanel, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_pad_all(ui_versionPanel, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_flex_flow(ui_versionPanel, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(ui_versionPanel, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
 
@@ -226,10 +246,31 @@ void ui_detailOTA_screen_init(void)
     lv_obj_set_style_text_font(ui_sizeValue, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_sizeValue, lv_color_hex(0x5F6368), LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    // Previous 行（手动回滚用）
+    lv_obj_t * row_previous = lv_obj_create(ui_versionPanel);
+    lv_obj_set_size(row_previous, LV_SIZE_CONTENT, 20);
+    lv_obj_remove_flag(row_previous, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_style_bg_opa(row_previous, 0, 0);
+    lv_obj_set_style_border_width(row_previous, 0, 0);
+    lv_obj_set_style_pad_all(row_previous, 0, 0);
+    lv_obj_set_flex_flow(row_previous, LV_FLEX_FLOW_ROW);
+
+    ui_previousLabel = lv_label_create(row_previous);
+    lv_label_set_text(ui_previousLabel, "Previous:");
+    lv_obj_set_style_text_font(ui_previousLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_previousValue = lv_label_create(row_previous);
+    {
+        const char *prev = ota_get_previous_version();
+        lv_label_set_text(ui_previousValue, (prev && prev[0]) ? prev : "--");
+    }
+    lv_obj_set_style_text_font(ui_previousValue, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_previousValue, lv_color_hex(0x7B1FA2), LV_PART_MAIN | LV_STATE_DEFAULT);
+
     // ── 进度条（初始隐藏） ──
     ui_progressBar = lv_bar_create(ui_detailOTA);
-    lv_obj_set_size(ui_progressBar, 210, 22);
-    lv_obj_set_pos(ui_progressBar, 0, 145);
+    lv_obj_set_size(ui_progressBar, 210, 18);
+    lv_obj_set_pos(ui_progressBar, 0, 168);
     lv_obj_set_align(ui_progressBar, LV_ALIGN_TOP_MID);
     lv_bar_set_range(ui_progressBar, 0, 100);
     lv_bar_set_value(ui_progressBar, 0, LV_ANIM_OFF);
@@ -241,7 +282,7 @@ void ui_detailOTA_screen_init(void)
     lv_obj_set_style_bg_color(ui_progressBar, lv_color_hex(0x1A73E8), LV_PART_INDICATOR | LV_STATE_DEFAULT);
 
     ui_progressLabel = lv_label_create(ui_detailOTA);
-    lv_obj_set_pos(ui_progressLabel, 0, 172);
+    lv_obj_set_pos(ui_progressLabel, 0, 188);
     lv_obj_set_align(ui_progressLabel, LV_ALIGN_TOP_MID);
     lv_label_set_text(ui_progressLabel, "0%");
     lv_obj_set_style_text_font(ui_progressLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -250,8 +291,8 @@ void ui_detailOTA_screen_init(void)
 
     // ── 检查更新按钮 ──
     ui_checkUpdateButton = lv_button_create(ui_detailOTA);
-    lv_obj_set_size(ui_checkUpdateButton, 200, 44);
-    lv_obj_set_pos(ui_checkUpdateButton, 0, 190);
+    lv_obj_set_size(ui_checkUpdateButton, 200, 40);
+    lv_obj_set_pos(ui_checkUpdateButton, 0, 210);
     lv_obj_set_align(ui_checkUpdateButton, LV_ALIGN_TOP_MID);
     lv_obj_set_style_radius(ui_checkUpdateButton, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_bg_color(ui_checkUpdateButton, lv_color_hex(0x1A73E8), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -265,11 +306,45 @@ void ui_detailOTA_screen_init(void)
     lv_obj_set_style_text_font(ui_checkUpdateButtonLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_checkUpdateButtonLabel, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
 
+    // ── 手动回滚按钮 ──
+    ui_rollbackButton = lv_button_create(ui_detailOTA);
+    lv_obj_set_size(ui_rollbackButton, 200, 40);
+    lv_obj_set_pos(ui_rollbackButton, 0, 255);
+    lv_obj_set_align(ui_rollbackButton, LV_ALIGN_TOP_MID);
+    lv_obj_set_style_radius(ui_rollbackButton, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(ui_rollbackButton, lv_color_hex(0xE37400), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(ui_rollbackButton, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(ui_rollbackButton, 4, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_opa(ui_rollbackButton, 40, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    ui_rollbackButtonLabel = lv_label_create(ui_rollbackButton);
+    lv_obj_center(ui_rollbackButtonLabel);
+    {
+        const char *prev = ota_get_previous_version();
+        if (prev && prev[0]) {
+            char buf[48];
+            snprintf(buf, sizeof(buf), "Rollback to %s", prev);
+            lv_label_set_text(ui_rollbackButtonLabel, buf);
+        } else {
+            lv_label_set_text(ui_rollbackButtonLabel, "No previous ver.");
+        }
+    }
+    lv_obj_set_style_text_font(ui_rollbackButtonLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_text_color(ui_rollbackButtonLabel, lv_color_white(), LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    // 无上一个版本时隐藏回滚按钮
+    {
+        const char *prev = ota_get_previous_version();
+        if (prev == NULL || prev[0] == '\0') {
+            lv_obj_add_flag(ui_rollbackButton, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
     // ── 状态信息 ──
     ui_otaStatusLabel = lv_label_create(ui_detailOTA);
     lv_obj_set_width(ui_otaStatusLabel, LV_SIZE_CONTENT);
     lv_obj_set_height(ui_otaStatusLabel, LV_SIZE_CONTENT);
-    lv_obj_set_pos(ui_otaStatusLabel, 0, 245);
+    lv_obj_set_pos(ui_otaStatusLabel, 0, 298);
     lv_obj_set_align(ui_otaStatusLabel, LV_ALIGN_TOP_MID);
     lv_label_set_text(ui_otaStatusLabel, "");
     lv_obj_set_style_text_font(ui_otaStatusLabel, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -278,6 +353,7 @@ void ui_detailOTA_screen_init(void)
     s_ota_progress_timer = lv_timer_create(ui_ota_progress_timer_cb, 500, NULL);
 
     lv_obj_add_event_cb(ui_checkUpdateButton, ui_event_checkUpdate, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(ui_rollbackButton, ui_event_rollback, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(ui_detailOTA, ui_event_detailOTA, LV_EVENT_GESTURE, NULL);
 }
 
@@ -309,4 +385,8 @@ void ui_detailOTA_screen_destroy(void)
     ui_otaStatusLabel = NULL;
     ui_progressBar = NULL;
     ui_progressLabel = NULL;
+    ui_previousLabel = NULL;
+    ui_previousValue = NULL;
+    ui_rollbackButton = NULL;
+    ui_rollbackButtonLabel = NULL;
 }
