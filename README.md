@@ -511,7 +511,7 @@ XPT2046 返回的原始坐标范围经实测约为 X: 10~225, Y: 10~310，通过
     └──► 设置页面 ── Wi-Fi 开关 + OTA 检查入口
                │
                ├──► Wi-Fi 设置页 ── AP 扫描列表 + 密码输入键盘 + 连接按钮
-               └──► OTA 详情页 ── 当前版本/目标版本/固件大小 + 检查更新 + 下载进度条
+               └──► OTA 详情页 ── 版本信息 + 检查更新 + 下载进度条 + 手动回滚按钮
 
 空闲 5 分钟 ──► 锁屏页 ── 实时时间/日期 + 呼吸光晕动画 + 点击或左滑解锁
 ```
@@ -763,6 +763,7 @@ my_nvs_erase_all_ns("ota_resumption");             // OTA 成功后清理
 | `storage` | `wifi_ssid` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
 | `storage` | `wifi_pass` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
 | `storage` | `app_version` | string | `get_app_verion()` | OTA 模块读取，需要外部写入 |
+| `storage` | `prev_app_version` | string | `ota_rollback_to_previous()` | OTA 升级成功时自动保存旧版本号 |
 | `ota_resumption` | `ota_md5` | string (33B) | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
 | `ota_resumption` | `ota_wr_len` | u32 | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
 
@@ -839,9 +840,33 @@ version=2022-05-01&res=products%2F{pid}&et={timestamp}&method=sha256&sign={base6
 - 写入过程中断电 → OTA 分区标记为无效，bootloader 回退到原固件
 - 校验失败 → 保留断点，下次从已有位置继续下载
 
+#### 固件回滚机制
+
+支持**自动回滚**（bootloader 级别）和**手动回滚**（用户触发）两种方式：
+
+| 特性 | 自动回滚 | 手动回滚 |
+|------|----------|----------|
+| 触发者 | Bootloader（被动） | 用户点击回滚按钮（主动） |
+| 场景 | 新固件启动后崩溃/卡死 | 用户不习惯新版本，想回到旧版 |
+| 实现方式 | `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` + PENDING_VERIFY | `esp_ota_set_boot_partition()` |
+| 检查点 | `ato_validate_app()` → `esp_ota_mark_app_valid_cancel_rollback()` | — |
+| 旧版本记录 | — | NVS `storage` namespace: `prev_app_version` |
+
+**自动回滚原理：**
+1. Bootloader 烧写新固件后标记为 `PENDING_VERIFY` 状态
+2. 新固件启动后，在 `app_main()` 末尾调用 `ato_validate_app()` 作为存活检查点
+3. 如果固件在检查点前崩溃/无限重启，bootloader 自动切回旧版本
+4. 配置：`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`（`sdkconfig.defaults`）
+
+**手动回滚原理：**
+1. OTA 成功时自动保存旧版本号到 NVS（`prev_app_version` key）
+2. OTA 详情页显示 `Previous: Vx.x.x` 行 + 橙色回滚按钮
+3. 点击按钮 → `ota_rollback_to_previous()` → `esp_ota_set_boot_partition()` → 自动重启
+4. 无上一个版本时按钮自动隐藏
+
 #### 当前状态
 
-底层 token 生成、版本上报、任务查询、状态上报、固件下载烧写、断点续传功能均已实现。UI 端支持 OTA 下载进度条实时显示（`ota_get_progress()` / `ota_is_running()` 轮询，每 500ms），每 10% 上报进度给平台。自动触发流程待补完。详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)。
+底层 token 生成、版本上报、任务查询、状态上报、固件下载烧写、断点续传、自动回滚（bootloader 检查点）、手动回滚功能均已实现。UI 端支持 OTA 下载进度条实时显示（每 500ms 轮询）、手动回滚按钮。自动触发流程待补完。详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)。
 
 ---
 
@@ -987,7 +1012,6 @@ pio device monitor         # 串口监控
 3. **状态管理** — 全局变量通过 extern 跨组件暴露，应封装为访问函数
 4. **STM32 侧** — 传感器无条件自启动，应改为由 ESP32 通过协议控制
 5. **OTA 自动流程** — 底层 API 已就绪，查询→下载→重启的自动流程待补完
-6. **固件回滚** — 新固件崩溃时自动回滚到旧版本（bootloader 侧已支持，检查点逻辑待实现，详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)）
 
 ---
 
