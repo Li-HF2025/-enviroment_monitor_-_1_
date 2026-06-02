@@ -24,6 +24,7 @@ typedef enum {
     CMD_TEMPERATURE = 0x01, // 温度数据
     CMD_DB = 0x02, // 声强数据
     CMD_LIGHT = 0x03, // 光照数据
+    CMD_VERSION = 0x04, // 固件版本查询 (STM32 OTA)
 }CMDType;
 
 typedef struct {
@@ -46,6 +47,10 @@ typedef struct {
     uint16_t payload_len;
     uint8_t payload[PROTOCOL_MAX_PAYLOAD];
 } UartTxItem;
+
+// UART 任务句柄 — 供 my_stm_ota 在 AN3155 烧写期间挂起/恢复
+extern TaskHandle_t uart_rx_task_handle;
+extern TaskHandle_t uart_tx_task_handle;
 
 void uart_init();
 void msg_Report(uint8_t cmd, const uint8_t *payload, uint16_t payload_len);

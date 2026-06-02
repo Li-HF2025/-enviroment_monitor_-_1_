@@ -135,14 +135,14 @@ void ui_detailTime_screen_init(void)
     lv_obj_set_style_shadow_opa(ui_Panel3, 30, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_hour = lv_label_create(ui_Panel3);
-    lv_obj_set_pos(ui_hour, -20, 0);
-    lv_obj_set_align(ui_hour, LV_ALIGN_LEFT_MID);
+    lv_obj_set_pos(ui_hour, -42, 0);
+    lv_obj_set_align(ui_hour, LV_ALIGN_CENTER);
     lv_label_set_text(ui_hour, "HH:MM:SS");
     lv_obj_set_style_text_font(ui_hour, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Label3 = lv_label_create(ui_Panel3);
-    lv_obj_set_pos(ui_Label3, 20, 0);
-    lv_obj_set_align(ui_Label3, LV_ALIGN_RIGHT_MID);
+    lv_obj_set_pos(ui_Label3, 42, 0);
+    lv_obj_set_align(ui_Label3, LV_ALIGN_CENTER);
     lv_label_set_text(ui_Label3, "Day");
     lv_obj_set_style_text_font(ui_Label3, &lv_font_montserrat_18, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(ui_Label3, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -159,7 +159,7 @@ void ui_detailTime_screen_init(void)
 
     ui_localTime = lv_textarea_create(input_card);
     lv_obj_set_size(ui_localTime, 140, 35);
-    lv_obj_set_pos(ui_localTime, -25, 0);
+    lv_obj_set_pos(ui_localTime, 8, 0);
     lv_obj_set_align(ui_localTime, LV_ALIGN_LEFT_MID);
     lv_textarea_set_placeholder_text(ui_localTime, "input time");
     lv_obj_set_style_text_color(ui_localTime, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -167,7 +167,7 @@ void ui_detailTime_screen_init(void)
 
     ui_DefaultTime = lv_switch_create(input_card);
     lv_obj_set_size(ui_DefaultTime, 50, 25);
-    lv_obj_set_pos(ui_DefaultTime, 25, 0);
+    lv_obj_set_pos(ui_DefaultTime, -8, 0);
     lv_obj_set_align(ui_DefaultTime, LV_ALIGN_RIGHT_MID);
 
     // ── 返回按钮 ──

@@ -8,6 +8,7 @@
 #include "main_task.h"
 #include "my_ota.h"
 #include "my_nvs.h"
+#include "my_stm_ota.h"
 void app_main(void)
 {
     uart_init();
@@ -17,10 +18,11 @@ void app_main(void)
     // mqtt_app_start();
     screen_init();
     ato_init();
-
     // 初始化完成后验证固件存活（自动回滚检查点）
     ato_validate_app();
+    stm_ota_init();
 
+    // stm_ota_self_test();
     while (1) {
         vTaskDelay(1000 / portTICK_PERIOD_MS);
     }

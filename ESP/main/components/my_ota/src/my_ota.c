@@ -48,11 +48,17 @@
 // Buffer sizes
 #define MAX_DATA_BUFF           1024
 
+typedef struct {
+    uint8_t *buf;
+    size_t buf_size;
+    size_t written;
+}ota_download_ctx_t;
+
 /* ==========================================================================
  * Module-level state
  * ========================================================================== */
 
-static const char *TAG = "ATO";
+static const char *TAG = "OTA";
 
 // HTTP response buffer
 static uint8_t  data_buff[MAX_DATA_BUFF];
@@ -221,6 +227,27 @@ static esp_err_t http_client_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+static esp_err_t firmware_download_event_handler(esp_http_client_event_t *evt){
+    switch (evt->event_id)
+    {
+    case HTTP_EVENT_ON_DATA:
+        {
+            ota_download_ctx_t *ctx = (ota_download_ctx_t *)evt->user_data;
+            if(ctx->written + evt->data_len > ctx->buf_size) return ESP_FAIL;
+
+            memcpy(&ctx->buf[ctx->written],evt->data,evt->data_len);
+            ctx->written += evt->data_len;
+        }
+        break;
+    case HTTP_EVENT_ERROR:
+        ESP_LOGI(TAG, "HTTP_EVENT_ERROR");
+        return ESP_FAIL;
+    default:
+        break;
+    }
+    return ESP_OK;
+}
+
 static esp_err_t onenet_ota_http_connect(const char* url, esp_http_client_method_t method, char* post_data)
 {
     esp_http_client_config_t config =
@@ -264,6 +291,53 @@ static esp_err_t onenet_ota_http_connect(const char* url, esp_http_client_method
     return err;
 }
 
+esp_err_t onenet_ota_fetch_firmware(const char *url, uint8_t *buf, size_t buf_size, size_t *out_len){
+    ota_download_ctx_t ctx = {
+        .buf = buf,
+        .buf_size = buf_size,
+        .written = 0,
+    };
+    
+    esp_http_client_config_t config =
+        {
+            .url = url,
+            .event_handler = firmware_download_event_handler,
+            .user_data = &ctx,
+            .timeout_ms = 10000,
+            .buffer_size = 4096,
+        };
+
+    esp_http_client_handle_t http_client = esp_http_client_init(&config);
+
+    if(http_client == NULL)
+    {
+        ESP_LOGE(TAG, "无法初始化HTTP客户端");
+        return ESP_FAIL;
+    }
+
+    char* token = (char*)malloc(512);
+    if (token == NULL) {
+        ESP_LOGE(TAG, "malloc token failed");
+        esp_http_client_cleanup(http_client);
+        return ESP_ERR_NO_MEM;
+    }
+    memset(token,0,512);
+    char request_res[256];
+    snprintf(request_res, sizeof(request_res), "products/%s", ONENET_PRODUCT_ID);
+    dev_token_generate(token, 2, get_token_expire_time(), request_res, "2022-05-01", ONENET_ACCESS_KEY);
+    ESP_LOGI(TAG, "user token:%s", token);
+
+    esp_http_client_set_method(http_client, HTTP_METHOD_GET);
+    esp_http_client_set_header(http_client, "Authorization", token);
+    esp_http_client_set_header(http_client, "host", "iot-api.heclouds.com");
+
+    esp_err_t err = esp_http_client_perform(http_client);
+    if(err == ESP_OK) *out_len = ctx.written;
+    free(token);
+    esp_http_client_cleanup(http_client);
+    return err;
+}
+
 /* ==========================================================================
  * Public API — Version query
  * ========================================================================== */
@@ -283,12 +357,20 @@ const char *ota_get_current_version(void)
 
 esp_err_t onenet_ota_upload_version(void)
 {
+    const char* version = ota_get_current_version();
+    return onenet_ota_upload_version_separate(version, version);
+}
+
+esp_err_t onenet_ota_upload_version_separate(const char *fw_ver, const char *sw_ver)
+{
     char version_info[256];
     char url[256];
     esp_err_t ret = ESP_FAIL;
 
-    const char* version = ota_get_current_version();
-    snprintf(version_info, sizeof(version_info), "{\"s_version\":\"%s\", \"f_version\": \"%s\"}", version, version);
+    const char *fw = (fw_ver && fw_ver[0]) ? fw_ver : "unknown";
+    const char *sw = (sw_ver && sw_ver[0]) ? sw_ver : "V0.0.0";
+    snprintf(version_info, sizeof(version_info),
+             "{\"f_version\":\"%s\", \"s_version\":\"%s\"}", fw, sw);
     snprintf(url, 256, ONENET_OTA_URL"/%s/%s/version", ONENET_PRODUCT_ID, ONENET_DEVICE_NAME);
     if(ESP_OK == onenet_ota_http_connect(url, HTTP_METHOD_POST, version_info))
     {
@@ -724,6 +806,16 @@ int ota_get_firmware_size(void)
 int ota_get_progress(void)
 {
     return s_ota_progress;
+}
+
+const char *ota_get_download_url(void)
+{
+    return ota_download_url;
+}
+
+const char *ota_get_firmware_md5(void)
+{
+    return firmware_md5;
 }
 
 bool ota_is_running(void)

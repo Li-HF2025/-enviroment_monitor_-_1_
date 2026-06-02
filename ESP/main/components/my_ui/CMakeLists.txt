@@ -24,5 +24,5 @@ idf_component_register(
         "${UI_COMPAT_DIR}"
         "../my_screen/inc"
     REQUIRES
-        lvgl my_screen
+        lvgl my_screen my_ota my_stm_ota my_wifi my_nvs
 )

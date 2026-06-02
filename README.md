@@ -58,7 +58,7 @@
 | 调试显示 | 0.96" SSD1306 OLED (I2C, 128×64) |
 | 云端平台 | OneNET 物联网平台，MQTT 协议 |
 | 网络能力 | Wi-Fi STA 模式、SNTP 网络时间同步 |
-| 固件升级 | OneNET OTA 远程固件升级（HTTPS） |
+| 固件升级 | OneNET OTA 远程固件升级（HTTPS），支持 ESP32 (FOTA) + STM32 (SOTA/AN3155) |
 | 操作系统 | FreeRTOS（双端均使用） |
 | ESP32 框架 | ESP-IDF v5.x + CMake |
 | STM32 框架 | STM32Cube HAL + PlatformIO |
@@ -136,7 +136,7 @@
 | 显示屏驱动 | esp_lcd_ili9341 | ILI9341 SPI 屏幕初始化与数据传输 |
 | 触摸驱动 | esp_lcd_touch_xpt2046 | XPT2046 电阻触摸坐标读取与映射 |
 | 串口通信 | UART1 (esp_driver_uart) | 与 STM32 双向二进制协议通信 |
-| OTA 升级 | esp_https_ota | OneNET OTA 固件下载、校验、刷写 |
+| OTA 升级 | esp_https_ota + AN3155 | ESP32 OTA (FOTA, type=1) + STM32 OTA (SOTA, type=2) |
 | 加密/认证 | mbedtls (HMAC-SHA256, Base64) | OneNET API 鉴权 token 生成 |
 | JSON 解析 | cJSON | OTA 接口响应解析、MQTT 数据组织 |
 
@@ -165,7 +165,8 @@
 | `temp_task` | 10 | 2048B | 温湿度数据解析与缓存更新 |
 | `mqtt_report_task` | 5 | 4096B | 定时 + 按需 MQTT 属性上报 |
 | `wifi_scan_task` | 5 | 4096B | Wi-Fi 扫描（按需创建，完成后自删） |
-| `ota_task` | 5 | 8192B | OTA 固件下载与刷写（按需创建） |
+| `ota_task` | 5 | 8192B | ESP32 OTA 固件下载与刷写（按需创建） |
+| `stm_ota_task` | 5 | 8192B | STM32 OTA 固件下载与 AN3155 烧写（按需创建） |
 
 #### FreeRTOS 任务列表（STM32F103C8T6 侧）
 
@@ -284,6 +285,7 @@ checksum = Ver + MsgType + Cmd + Seq_L + Seq_H + Len_L + Len_H + sum(Payload[0..
 | `0x01` | CMD_TEMPERATURE | 温湿度传感器控制与数据 | 双向（请求=控制, 响应=温湿度数据） |
 | `0x02` | CMD_DB | 分贝模块控制与数据 | 双向（请求=控制, 响应/上报=分贝数据） |
 | `0x03` | CMD_LIGHT | 光照传感器（已预留，待实现） | 预留 |
+| `0x04` | CMD_VERSION | STM32 固件版本查询（OTA 用） | ESP32 → STM32 请求，STM32 返回版本号 |
 
 ### 状态机解析流程
 
@@ -511,7 +513,7 @@ XPT2046 返回的原始坐标范围经实测约为 X: 10~225, Y: 10~310，通过
     └──► 设置页面 ── Wi-Fi 开关 + OTA 检查入口
                │
                ├──► Wi-Fi 设置页 ── AP 扫描列表 + 密码输入键盘 + 连接按钮
-               └──► OTA 详情页 ── 版本信息 + 检查更新 + 下载进度条 + 手动回滚按钮
+               └──► OTA 详情页 ── [ESP32]/[STM32] 芯片切换 + 版本卡片 + 两段式升级 + 回滚
 
 空闲 5 分钟 ──► 锁屏页 ── 实时时间/日期 + 呼吸光晕动画 + 点击或左滑解锁
 ```
@@ -528,7 +530,7 @@ XPT2046 返回的原始坐标范围经实测约为 X: 10~225, Y: 10~310，通过
 | 光照详情 | `ui_detialLight.c` | `detail_light_logic.c` | 点击光照区域 |
 | 设置 | `ui_setting.c` | — | 下滑手势 |
 | Wi-Fi 设置 | `ui_WIFIsetting.c` | `wifi_scan.c` | 点击 WiFi 标签 |
-| OTA 详情 | `ui_detailOTA.c` | `my_ota.c` | 点击 OTA 标签 |
+| OTA 详情 | `ui_detailOTA.c` | `my_ota.c` + `my_stm_ota.c` | 点击 OTA 标签（芯片切换条：ESP32/STM32） |
 | 锁屏 | `ui_ScreenLock.c` | `screen_idle_lock.c` | 5 分钟无操作（显示实时时钟+呼吸动画） |
 
 #### 线程安全
@@ -764,30 +766,42 @@ my_nvs_erase_all_ns("ota_resumption");             // OTA 成功后清理
 | `storage` | `wifi_pass` | string | `wifi_connect()` | 手动连接 Wi-Fi 成功后 |
 | `storage` | `app_version` | string | `get_app_verion()` | OTA 模块读取，需要外部写入 |
 | `storage` | `prev_app_version` | string | `ota_rollback_to_previous()` | OTA 升级成功时自动保存旧版本号 |
-| `ota_resumption` | `ota_md5` | string (33B) | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
-| `ota_resumption` | `ota_wr_len` | u32 | `ota_resume_save_progress()` | OTA 下载每 64KB 保存一次 |
+| `ota` | `stm_version` | string | `stm_ota_flash()` | STM32 OTA 烧写成功后 |
+| `ota` | `stm_prev_version` | string | `stm_ota_flash()` | STM32 OTA 烧写前保存旧版本号 |
+| `ota_resumption` | `ota_md5` | string (33B) | `ota_resume_save_progress()` | ESP32 OTA 下载每 64KB 保存一次 |
+| `ota_resumption` | `ota_wr_len` | u32 | `ota_resume_save_progress()` | ESP32 OTA 下载每 64KB 保存一次 |
+| `ota_resumption` | `stm_ota_md5` | string | STM32 OTA 下载过程 | STM32 固件下载断点 MD5 |
+| `ota_resumption` | `stm_ota_size` | u32 | STM32 OTA 下载过程 | STM32 固件已下载字节数 |
 
 #### 封装层的价值
 
 从最初的简单 set/get 封装发展为统一 namespace 管理器，支持：
 - **句柄生命周期管理**：打开/关闭/查找统一入口，避免句柄泄漏
-- **数据隔离**：不同模块使用独立 namespace（如 OTA 断点使用 `ota_resumption`），擦除时互不影响
+- **数据隔离**：不同模块使用独立 namespace（ESP32 OTA 断点用 `ota_resumption`，STM32 版本用 `ota`），擦除时互不影响
 - **可切换性**：未来切换存储方式（SPIFFS/LittleFS）只需改 `my_nvs` 内部实现
 
 ---
 
-### 8. OTA 固件升级（my_ota）
+### 8. OTA 固件升级（my_ota + my_stm_ota）
 
-#### 升级流程
+系统支持**两块芯片**的独立 OTA 升级，通过 OneNET 的两个通道区分：
+
+| 通道 | OneNET type | 版本字段 | 负责组件 | 升级方式 |
+|------|-----------|---------|---------|---------|
+| 模组固件 (FOTA) | `"1"` | `f_version` | ESP32-S3 | `esp_https_ota` 直接写入 OTA 分区 |
+| MCU软件 (SOTA) | `"2"` | `s_version` | STM32F103 | ESP32 下载固件到 RAM → AN3155 协议烧写 STM32 |
+
+#### ESP32 OTA 升级流程（my_ota）
 
 ```
 1. 上报版本 → POST /fuse-ota/{pid}/{dev}/version
-       Body: {"s_version":"V1.0", "f_version":"V1.0"}
-2. 查询任务 → GET  /fuse-ota/{pid}/{dev}/check?type=...&version=...
+       Body: {"f_version":"V1.0.0", "s_version":"V0.0.0"}
+       （一次上报两块芯片的真实版本，分别对应 FOTA/SOTA 通道）
+2. 查询任务 → GET  /fuse-ota/{pid}/{dev}/check?type=1&version=...
        响应包含 target(目标版本)、tid(任务ID)、md5(固件校验码)
 3. 检查断点 → 查询 ota_resumption namespace，MD5 匹配则从上次断点继续
 4. 下载固件 → HTTPS GET, esp_https_ota_perform() 分块下载（buffer=4096B）
-5. 保存进度 → 每 64KB 将 URL + 已写入字节数写入 ota_resumption namespace
+5. 保存进度 → 每 64KB 将 MD5 + 已写入字节数写入 ota_resumption namespace
 6. 校验固件 → 比对版本号(相同则拒绝) + 校验固件签名
 7. 刷入Flash → 自动写入 OTA 分区
 8. 上报状态 → POST /fuse-ota/{pid}/{dev}/{tid}/status
@@ -796,9 +810,38 @@ my_nvs_erase_all_ns("ota_resumption");             // OTA 成功后清理
 10. 重启    → esp_restart()
 ```
 
-#### 断点续传机制
+#### STM32 OTA 升级流程（my_stm_ota）
 
-OTA 下载过程中断网或断电后，下次启动可从中断位置继续下载，无需从头开始：
+```
+1. 查询任务 → GET .../check?type=2&version=...  (SOTA/MCU软件通道)
+2. 下载固件 → onenet_ota_fetch_firmware() 将 .bin 文件下载到 RAM 缓冲区
+3. GPIO 切换 → BOOT0=HIGH + NRST 复位 → STM32 进入 ROM Bootloader
+4. UART 独占 → 挂起 uart_rx_task / uart_tx_task，清空 UART 缓冲
+5. AN3155 握手 → 发送 0x7F 自动波特率探测 → 等待 0x79 (ACK)
+6. 全局擦除 → Extended Erase (0x44) 擦除 STM32 全部 Flash (~3 秒)
+7. 逐块写入 → Write Memory (0x31)，每次 256 字节，地址 0x08000000 起
+8. 回读验证 → 验证前 256 字节与源固件一致
+9. 跳转执行 → Go (0x21) 命令跳转到新固件
+10. 保存版本 → NVS 写入 stm_version + stm_prev_version
+11. 恢复通信 → 拉低 BOOT0 + 恢复 UART 任务
+```
+
+#### AN3155 协议要点
+
+STM32 ROM Bootloader 通过 USART1 接收命令，ESP32 作为主机发送：
+
+| 命令码 | 名称 | 说明 |
+|--------|------|------|
+| `0x7F` | Auto Baud | 波特率自动检测，STM32 回复 0x79 |
+| `0x00` | Get | 读取 bootloader 版本和芯片 PID |
+| `0x44` | Extended Erase | 全局或页擦除 Flash |
+| `0x31` | Write Memory | 写入 Flash（地址 4 字节对齐，长度 4 的倍数 ≤256） |
+| `0x21` | Go | 跳转到指定地址执行 |
+| `0x11` | Read Memory | 回读 Flash 内容（用于写入验证） |
+
+**关键约束：** 写入长度必须是 4 的倍数，地址 4 字节对齐。固件编译时在 STM32 链接脚本末尾 `ALIGN(4)` 保证。AN3155 通信期间 UART 被独占，自定义协议帧不能混入。
+
+#### 断点续传机制
 
 | 环节 | 说明 |
 |------|------|
@@ -810,11 +853,47 @@ OTA 下载过程中断网或断电后，下次启动可从中断位置继续下�
 | 清理时机 | OTA 成功 → `ota_resume_cleanup()` → `my_nvs_erase_all_ns("ota_resumption")` |
 | 失败保留 | 下载中断/校验失败 → 保留断点，下次重试 |
 
-#### 下载性能优化
+#### 版本上报机制
 
-- **关闭 Wi-Fi 省电模式**：`esp_wifi_set_ps(WIFI_PS_NONE)`，最大化下载吞吐
-- **HTTP 缓冲区增大**：`buffer_size` 从 1024 → 4096 字节，减少 HTTP 分块开销
-- **日志去重**：仅在进度百分比变化时才打印日志，避免串口洪水
+系统启动时一次性上报 ESP32 和 STM32 的真实版本：
+
+```c
+onenet_ota_upload_version_separate(
+    ota_get_current_version(),      // f_version ← ESP32
+    stm_ota_get_stm_version()       // s_version ← STM32 (默认 "V0.0.0")
+);
+```
+
+上报策略：
+
+| 时机 | f_version (ESP32) | s_version (STM32) |
+|------|-------------------|-------------------|
+| 系统启动 | `ota_get_current_version()` | `stm_ota_get_stm_version()` (从 NVS 读取) |
+| ESP32 OTA 成功后 | 新版本号 | 不变 |
+| STM32 OTA 成功后 | 不变 | 新版本号 |
+
+#### OTA UI（芯片切换式）
+
+OTA 详情页采用**单面板 + 芯片切换条**设计，两块芯片共享同一块信息卡片和进度条：
+
+```
+┌──────────────────────────┐
+│      OTA Update          │
+├──────────────────────────┤
+│  [ESP32]  ●  [STM32]    │  ← 芯片切换条（● = 有新固件）
+├──────────────────────────┤
+│ Current:  V1.5.3         │
+│ Target:   V1.6.0         │  ← 信息卡片（随选中芯片切换）
+│ Size:     512 KB         │
+│ Previous: V1.4.1         │  ← 仅 ESP32 显示
+├──────────────────────────┤
+│ [Check Firmware]         │  ← 两段式：先 Check 再 Update
+│ [Update Firmware]        │
+│ [Rollback to V1.4.1]     │  ← 仅 ESP32 显示（有旧版时）
+└──────────────────────────┘
+```
+
+交互采用**统一两段式**：Check → 展示目标版本/大小 → Update → 下载+烧写。ESP32 和 STM32 不会同时 OTA，进度条和进度轮询定时器共享。
 
 #### Token 鉴权机制
 
@@ -831,42 +910,45 @@ Token 有效期默认 24 小时（86400 秒），格式为：
 version=2022-05-01&res=products%2F{pid}&et={timestamp}&method=sha256&sign={base64_hmac}
 ```
 
-#### 安全机制
+#### 安全与可靠性
 
+**ESP32 OTA：**
 - 版本相同拒绝升级（防止无限循环）
 - 固件签名由 esp_https_ota 内部验证
-- 下载中断（网络断开等）→ 断点自动保存到 NVS，下次继续，不影响现有固件
+- 下载中断 → 断点自动保存到 NVS，下次继续，不影响现有固件
 - `esp_https_ota_abort()` 可在任意时刻安全中止下载
 - 写入过程中断电 → OTA 分区标记为无效，bootloader 回退到原固件
 - 校验失败 → 保留断点，下次从已有位置继续下载
 
+**STM32 OTA：**
+- 固件先完整下载到 RAM → 校验后再擦除/烧写（避免半写状态）
+- AN3155 烧写期间手动喂硬件看门狗（erase + write 总计 5~15 秒）
+- 所有 AN3155 失败路径统一恢复：`stm_ota_exit_bootloader()` + 恢复 UART 任务
+- GPIO 选型避开 ESP32-S3 strapping pins（BOOT0 → GPIO14，NRST → GPIO13）
+- NRST 使用开漏输出 + 外部上拉，避免与 STM32 内部复位电路冲突
+
 #### 固件回滚机制
 
-支持**自动回滚**（bootloader 级别）和**手动回滚**（用户触发）两种方式：
+**自动回滚（ESP32）：**
 
-| 特性 | 自动回滚 | 手动回滚 |
-|------|----------|----------|
-| 触发者 | Bootloader（被动） | 用户点击回滚按钮（主动） |
-| 场景 | 新固件启动后崩溃/卡死 | 用户不习惯新版本，想回到旧版 |
-| 实现方式 | `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` + PENDING_VERIFY | `esp_ota_set_boot_partition()` |
-| 检查点 | `ato_validate_app()` → `esp_ota_mark_app_valid_cancel_rollback()` | — |
-| 旧版本记录 | — | NVS `storage` namespace: `prev_app_version` |
+| 特性 | 说明 |
+|------|------|
+| 触发者 | Bootloader（被动） |
+| 场景 | 新固件启动后崩溃/卡死 |
+| 实现方式 | `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE` + PENDING_VERIFY |
+| 检查点 | `ato_validate_app()` → `esp_ota_mark_app_valid_cancel_rollback()` |
 
-**自动回滚原理：**
-1. Bootloader 烧写新固件后标记为 `PENDING_VERIFY` 状态
-2. 新固件启动后，在 `app_main()` 末尾调用 `ato_validate_app()` 作为存活检查点
-3. 如果固件在检查点前崩溃/无限重启，bootloader 自动切回旧版本
-4. 配置：`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y`（`sdkconfig.defaults`）
+**手动回滚（ESP32 + STM32）：**
 
-**手动回滚原理：**
-1. OTA 成功时自动保存旧版本号到 NVS（`prev_app_version` key）
-2. OTA 详情页显示 `Previous: Vx.x.x` 行 + 橙色回滚按钮
-3. 点击按钮 → `ota_rollback_to_previous()` → `esp_ota_set_boot_partition()` → 自动重启
-4. 无上一个版本时按钮自动隐藏
+| 特性 | ESP32 | STM32 |
+|------|-------|-------|
+| 触发者 | 用户点击回滚按钮 | （计划中，通过 AN3155 重烧旧版） |
+| 实现方式 | `esp_ota_set_boot_partition()` | 重新下载旧固件 + AN3155 烧写 |
+| 旧版本记录 | NVS `storage`: `prev_app_version` | NVS `ota`: `stm_prev_version` |
 
 #### 当前状态
 
-底层 token 生成、版本上报、任务查询、状态上报、固件下载烧写、断点续传、自动回滚（bootloader 检查点）、手动回滚功能均已实现。UI 端支持 OTA 下载进度条实时显示（每 500ms 轮询）、手动回滚按钮。自动触发流程待补完。详见 [OTA_ENHANCEMENT_PLAN.md](ESP/OTA_ENHANCEMENT_PLAN.md)。
+ESP32 OTA 的 token 生成、版本上报、任务查询、状态上报、固件下载烧写、断点续传、自动/手动回滚功能均已实现。STM32 OTA 的组件骨架、AN3155 协议常量、GPIO 控制、UART 模式切换基础架构已就绪，AN3155 核心烧写逻辑和云端对接流程正在开发中。详见 [ESP32_OTA_UPGRADE_PLAN.md](ESP/ESP32_OTA_UPGRADE_PLAN.md)。
 
 ---
 
@@ -876,17 +958,17 @@ version=2022-05-01&res=products%2F{pid}&et={timestamp}&method=sha256&sign={base6
 environmental_monitoring/
 ├── ESP/                                  # ESP32-S3 工程 (ESP-IDF)
 │   ├── CMakeLists.txt                    # 顶层 CMake
-│   ├── OTA_ENHANCEMENT_PLAN.md            # OTA 功能增强计划
+│   ├── ESP32_OTA_UPGRADE_PLAN.md           # STM32 OTA 升级计划
 │   ├── main/
 │   │   ├── CMakeLists.txt                # 主组件注册（依赖所有子组件）
-│   │   ├── main.c                        # app_main 入口
+│   │   ├── main.c                        # app_main 入口（启动序列：UART→NVS→WiFi→屏→OTA→STM_OTA）
 │   │   └── components/
 │   │       ├── my_serial/                # 串口协议收发
 │   │       │   ├── inc/
-│   │       │   │   ├── my_serial.h       # 协议帧定义 + 公共接口
+│   │       │   │   ├── my_serial.h       # 协议帧定义 + 公共接口 + 暴露 UART 任务句柄
 │   │       │   │   └── main_task.h       # 主任务队列接口
 │   │       │   └── src/
-│   │       │       ├── my_serial.c       # UART 驱动 + 协议收发 + 状态机
+│   │       │       ├── my_serial.c       # UART 驱动 + 协议状态机 + 任务句柄保存（供 AN3155 挂起）
 │   │       │       └── mian_task.c       # 协议消息分发（文件名待修正）
 │   │       ├── my_wifi/                  # Wi-Fi 连接管理
 │   │       │   ├── inc/
@@ -930,14 +1012,19 @@ environmental_monitoring/
 │   │       │       ├── ui_detialLight.c  # 光照详情
 │   │       │       ├── ui_setting.c      # 设置界面
 │   │       │       ├── ui_WIFIsetting.c  # Wi-Fi 设置
-│   │       │       ├── ui_detailOTA.c    # OTA 详情
+│   │       │       ├── ui_detailOTA.c    # OTA 详情（芯片切换式：ESP32/STM32）
 │   │       │       └── ui_ScreenLock.c   # 锁屏界面
 │   │       ├── my_nvs/                   # NVS 持久化存储（多 namespace 注册表）
 │   │       │   ├── inc/my_nvs.h
 │   │       │   └── src/my_nvs.c
-│   │       └── my_ota/                   # OTA 固件升级（断点续传）
-│   │           ├── inc/my_ota.h
-│   │           └── src/my_ota.c          # Token + API + 固件下载 + 断点保存/恢复
+│   │       ├── my_ota/                   # ESP32 OTA 固件升级（FOTA, type=1）
+│   │       │   ├── inc/my_ota.h          # Token + API + 固件下载 + 回滚
+│   │       │   └── src/my_ota.c          # 断点续传 + 双版本上报
+│   │       └── my_stm_ota/               # STM32 OTA 固件升级（SOTA, type=2）
+│   │           ├── CMakeLists.txt
+│   │           ├── inc/my_stm_ota.h      # 公共 API（下载/烧写/状态查询）
+│   │           ├── inc/stm_an3155.h      # AN3155 ROM Bootloader 协议常量
+│   │           └── src/my_stm_ota_stub.c # AN3155 烧写实现（骨架，待补完）
 │   └── managed_components/               # ESP-IDF 组件管理器自动下载
 │       ├── lvgl__lvgl/                   # LVGL v9.2.2
 │       ├── espressif__esp_lcd_ili9341/   # ILI9341 驱动
@@ -1011,7 +1098,7 @@ pio device monitor         # 串口监控
 2. **协议优化** — 载荷使用字符串命令（`"DB Init"`），应改为子命令码
 3. **状态管理** — 全局变量通过 extern 跨组件暴露，应封装为访问函数
 4. **STM32 侧** — 传感器无条件自启动，应改为由 ESP32 通过协议控制
-5. **OTA 自动流程** — 底层 API 已就绪，查询→下载→重启的自动流程待补完
+5. **STM32 OTA 完成** — AN3155 核心烧写逻辑和云端对接流程正在开发中，组件骨架已就绪
 
 ---
 
@@ -1053,6 +1140,8 @@ sequenceDiagram
     deactivate SCR
 
     APP->>APP: ato_init() 注册OTA事件+打开ota_resumption namespace
+
+    APP->>APP: stm_ota_init() 初始化GPIO(BOOT0+NRST)+注册ota namespace
 
     Note over STM: STM32同步上电启动
     STM->>STM: HAL+时钟+GPIO+DMA+ADC+UART初始化
@@ -1182,39 +1271,97 @@ sequenceDiagram
     deactivate SER
 ```
 
-### 五、OTA 固件升级
+### 五、OTA 固件升级（双芯片）
+
+#### 5.1 ESP32 OTA（FOTA, type=1）
 
 ```mermaid
 sequenceDiagram
-    participant UI as ui_detailOTA
+    participant UI as ui_detailOTA (ESP32 tab)
     participant OTA as my_ota
-    participant SRV as OneNET OTA API
+    participant SRV as OneNET FOTA API
     participant TASK as ota_task
-    participant HW as Flash
+    participant HW as ESP32 Flash
 
-    UI->>UI: 点击updates按钮
-    UI->>UI: 确认Wi-Fi已连接
-    UI->>OTA: onenet_ota_upload_version()
+    UI->>UI: 点击 [Check Firmware]
+    UI->>OTA: onenet_ota_upload_version_separate(esp32_ver, stm32_ver)
     activate OTA
-    OTA->>OTA: get_app_verion() 当前版本号
-    OTA->>OTA: dev_token_generate() HMAC-SHA256 token
-    OTA->>SRV: HTTP POST /version
+    OTA->>OTA: dev_token_generate() HMAC-SHA256
+    OTA->>SRV: HTTP POST /version {"f_version":"V1.0.0","s_version":"V0.0.0"}
     SRV-->>OTA: code=0 上报成功
+
+    OTA->>SRV: HTTP GET /check?type=1&version=V1.0.0
+    SRV-->>OTA: target_version + task_id + md5 + size
     deactivate OTA
+    OTA-->>UI: 更新卡片：Target/Size/MD5
 
-    Note over UI: [待补完] 查询升级任务
-    OTA->>SRV: HTTP GET /check?type=1&version=xxx
-    SRV-->>OTA: target_version + task_id
-
-    OTA->>TASK: xTaskCreate(ota_task)
+    UI->>UI: 提示用户确认 → 用户点击 [Update Firmware]
+    UI->>TASK: xTaskCreate(ota_task)
     activate TASK
+    TASK->>TASK: check_resume() 按 MD5 查询断点
     TASK->>TASK: esp_https_ota_begin() 初始化OTA分区
     TASK->>TASK: validate_image_header() 版本比对
-    loop 分块下载
-        TASK->>SRV: HTTPS固件下载
+    loop 分块下载 (每 64KB 保存断点)
+        TASK->>SRV: HTTPS 固件下载
         SRV-->>TASK: 固件数据块
+        TASK->>TASK: ota_resume_save_progress(ota_md5, ota_wr_len)
+        TASK-->>UI: 更新进度条
     end
     TASK->>TASK: esp_https_ota_finish() 校验写入
+    TASK->>TASK: ota_resume_cleanup() 清除断点
     TASK->>HW: esp_restart() 重启进入新固件
+    deactivate TASK
+```
+
+#### 5.2 STM32 OTA（SOTA, type=2）
+
+```mermaid
+sequenceDiagram
+    participant UI as ui_detailOTA (STM32 tab)
+    participant STM as my_stm_ota
+    participant OTA as my_ota (HTTP 下载)
+    participant SRV as OneNET SOTA API
+    participant TASK as stm_ota_task
+    participant UART as UART1
+    participant SOC as STM32 ROM Bootloader
+
+    UI->>UI: 点击 [Check Firmware]
+    UI->>STM: stm_ota_check_task(version)
+    STM->>SRV: HTTP GET /check?type=2&version=Vx.x.x
+    SRV-->>STM: target_version + task_id + md5 + download_url + size
+    STM-->>UI: 更新卡片：Target/Size
+
+    UI->>UI: 用户点击 [Update Firmware]
+    UI->>TASK: xTaskCreate(stm_ota_task)
+    activate TASK
+
+    TASK->>OTA: onenet_ota_fetch_firmware(url, buf, size, &out_len)
+    OTA->>SRV: HTTPS GET 固件下载 → RAM buffer
+    SRV-->>OTA: 固件数据块 (64KB max)
+    OTA-->>TASK: 下载完成
+
+    TASK->>TASK: GPIO: BOOT0=HIGH + NRST 复位
+    TASK-->>SOC: STM32 进入 ROM Bootloader
+    TASK->>UART: uart_switch_to_an3155()
+
+    TASK->>SOC: 0x7F 自动波特率探测
+    SOC-->>TASK: 0x79 (ACK)
+    TASK->>SOC: 0x44 Extended Erase (全局擦除 ~3s)
+    SOC-->>TASK: 0x79 (ACK)
+
+    loop 逐 256 字节写入 (地址 0x08000000)
+        TASK->>SOC: 0x31 Write Memory + addr + data[256] + XOR
+        SOC-->>TASK: 0x79 (ACK)
+    end
+
+    TASK->>SOC: 0x11 Read Memory 回读验证
+    SOC-->>TASK: 验证数据
+
+    TASK->>SOC: 0x21 Go → 0x08000000 跳转新固件
+    SOC-->>TASK: 0x79 (ACK)
+
+    TASK->>TASK: NVS 保存 stm_version + stm_prev_version
+    TASK->>UART: uart_switch_to_normal()
+    TASK->>TASK: GPIO: BOOT0=LOW
     deactivate TASK
 ```

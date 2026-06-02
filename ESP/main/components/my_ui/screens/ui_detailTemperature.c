@@ -107,14 +107,14 @@ void ui_detailTemperature_screen_init(void)
 
     /* 温度 - 左侧 */
     lv_obj_t * temp_label = lv_label_create(data_card);
-    lv_obj_set_pos(temp_label, -30, -10);
+    lv_obj_set_pos(temp_label, -48, -10);
     lv_obj_set_align(temp_label, LV_ALIGN_CENTER);
     lv_label_set_text(temp_label, "Temperature");
     lv_obj_set_style_text_font(temp_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(temp_label, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_tempValue = lv_label_create(data_card);
-    lv_obj_set_pos(ui_tempValue, -30, 12);
+    lv_obj_set_pos(ui_tempValue, -48, 12);
     lv_obj_set_align(ui_tempValue, LV_ALIGN_CENTER);
     lv_label_set_text(ui_tempValue, "--.- C");
     lv_obj_set_style_text_font(ui_tempValue, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -122,14 +122,14 @@ void ui_detailTemperature_screen_init(void)
 
     /* 湿度 - 右侧 */
     lv_obj_t * hum_label = lv_label_create(data_card);
-    lv_obj_set_pos(hum_label, 30, -10);
+    lv_obj_set_pos(hum_label, 48, -10);
     lv_obj_set_align(hum_label, LV_ALIGN_CENTER);
     lv_label_set_text(hum_label, "Humidity");
     lv_obj_set_style_text_font(hum_label, &lv_font_montserrat_14, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_color(hum_label, lv_color_hex(0x888888), LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_humidityValue = lv_label_create(data_card);
-    lv_obj_set_pos(ui_humidityValue, 30, 12);
+    lv_obj_set_pos(ui_humidityValue, 48, 12);
     lv_obj_set_align(ui_humidityValue, LV_ALIGN_CENTER);
     lv_label_set_text(ui_humidityValue, "--.- %");
     lv_obj_set_style_text_font(ui_humidityValue, &lv_font_montserrat_20, LV_PART_MAIN | LV_STATE_DEFAULT);
@@ -193,14 +193,14 @@ void ui_detailTemperature_screen_init(void)
     lv_obj_t * switch_card = create_card(ui_detailTemperature, 186, 46);
 
     ui_tempSwitchLabel = lv_label_create(switch_card);
-    lv_obj_set_pos(ui_tempSwitchLabel, -30, 0);
+    lv_obj_set_pos(ui_tempSwitchLabel, 8, 0);
     lv_obj_set_align(ui_tempSwitchLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_tempSwitchLabel, "Sensor: ON");
     lv_obj_set_style_text_font(ui_tempSwitchLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Switch1 = lv_switch_create(switch_card);
     lv_obj_set_size(ui_Switch1, 50, 25);
-    lv_obj_set_pos(ui_Switch1, -30, 0);
+    lv_obj_set_pos(ui_Switch1, -8, 0);
     lv_obj_set_align(ui_Switch1, LV_ALIGN_RIGHT_MID);
     lv_obj_add_state(ui_Switch1, LV_STATE_CHECKED);
 

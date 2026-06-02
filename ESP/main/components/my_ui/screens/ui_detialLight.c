@@ -162,14 +162,14 @@ void ui_detialLight_screen_init(void)
     lv_obj_t * switch_card = create_card(ui_detialLight, 192, 46);
 
     ui_lightSwitchLabel = lv_label_create(switch_card);
-    lv_obj_set_pos(ui_lightSwitchLabel, -30, 0);
+    lv_obj_set_pos(ui_lightSwitchLabel, 8, 0);
     lv_obj_set_align(ui_lightSwitchLabel, LV_ALIGN_LEFT_MID);
     lv_label_set_text(ui_lightSwitchLabel, "Sensor: ON");
     lv_obj_set_style_text_font(ui_lightSwitchLabel, &lv_font_montserrat_16, LV_PART_MAIN | LV_STATE_DEFAULT);
 
     ui_Switch3 = lv_switch_create(switch_card);
     lv_obj_set_size(ui_Switch3, 50, 25);
-    lv_obj_set_pos(ui_Switch3, -30, 0);
+    lv_obj_set_pos(ui_Switch3, -8, 0);
     lv_obj_set_align(ui_Switch3, LV_ALIGN_RIGHT_MID);
     lv_obj_add_state(ui_Switch3, LV_STATE_CHECKED);
 

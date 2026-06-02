@@ -9,6 +9,8 @@
 #define UART_TX_BUF    1024
 QueueHandle_t uart_rx_queue; // UART接收事件队列句柄
 QueueHandle_t uart_tx_queue; // UART发送事件队列句柄
+TaskHandle_t uart_rx_task_handle = NULL;
+TaskHandle_t uart_tx_task_handle = NULL;
 static const char *TAG = "MY_SERIAL";
 
 //开始帧和结束帧定义
@@ -324,8 +326,8 @@ void uart_init(){
     ESP_ERROR_CHECK(uart_driver_install(UART_PORT, UART_RX_BUF, UART_TX_BUF, 5, &uart_rx_queue, 0));
 
     uart_tx_queue = xQueueCreate(5, sizeof(UartTxItem)); // 创建UART发送队列
-    xTaskCreate(uart_rx_task, "uart_event_task", 4096, NULL, configMAX_PRIORITIES - 1, NULL);// 创建UART接收任务
-    xTaskCreate(uart_tx_task, "uart_tx_task", 3072, NULL, configMAX_PRIORITIES - 2, NULL);// 创建UART发送任务
+    xTaskCreate(uart_rx_task, "uart_event_task", 4096, NULL, configMAX_PRIORITIES - 1, &uart_rx_task_handle);// 创建UART接收任务
+    xTaskCreate(uart_tx_task, "uart_tx_task", 3072, NULL, configMAX_PRIORITIES - 2, &uart_tx_task_handle);// 创建UART发送任务
     ESP_LOGI(TAG, "UART初始化完成");
 
     uart_send_test(); // 发送测试消息，验证UART通信是否正常
