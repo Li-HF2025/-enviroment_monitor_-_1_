@@ -1,5 +1,6 @@
 #include "../ui.h"
 #include "wifi_scan.h"
+#include "lvgl.h"
 
 lv_obj_t * ui_setting = NULL;
 lv_obj_t * ui_WIFI = NULL;
@@ -8,6 +9,31 @@ lv_obj_t * ui_WIFISwitch = NULL;
 lv_obj_t * ui_OTA = NULL;
 lv_obj_t * ui_Label06 = NULL;
 static TaskHandle_t s_wifi_scan_task = NULL;
+
+/* ---- WiFi 扫描结果 → LVGL 异步 UI 更新 ---- */
+static void wifi_scan_update_ui_async(void *user_data)
+{
+    char *options = (char *)user_data;
+    extern lv_obj_t *ui_WIFIChoice;   // 定义在 ui_WIFIsetting.c
+    if (ui_WIFIChoice) {
+        lv_dropdown_set_options(ui_WIFIChoice, options);
+    }
+    free(options);
+}
+
+/* worker 线程回调 → 转到 LVGL 线程 */
+static void wifi_scan_result_callback(const char *options)
+{
+    if (options) {
+        lv_async_call(wifi_scan_update_ui_async, (void *)options);
+    }
+}
+
+/* 扫描结束 → 清除任务句柄 */
+static void wifi_scan_done_callback(void)
+{
+    s_wifi_scan_task = NULL;
+}
 
 void ui_wifi_scan_task_clear_handle(void)
 {
@@ -100,6 +126,14 @@ void ui_setting_screen_init(void)
     lv_obj_add_event_cb(ui_WIFISwitch, ui_event_WIFISwitch, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ui_OTA, ui_event_OTA, LV_EVENT_CLICKED, NULL);
     lv_obj_add_event_cb(ui_setting, ui_event_setting, LV_EVENT_GESTURE, NULL);
+
+    /* 注册 WiFi 扫描回调（仅首次执行） */
+    static bool scan_cb_registered = false;
+    if (!scan_cb_registered) {
+        scan_cb_registered = true;
+        wifi_scan_set_result_callback(wifi_scan_result_callback);
+        wifi_scan_set_done_callback(wifi_scan_done_callback);
+    }
 }
 
 void ui_setting_screen_destroy(void)

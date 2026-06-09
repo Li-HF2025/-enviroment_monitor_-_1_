@@ -18,6 +18,7 @@ static void dB_task(void *arg){
         float dB_value;
         if(xQueueReceive(dB_queue, &dB_value, portMAX_DELAY) == pdTRUE){
             latest_dB_value = dB_value;
+            if(dB_value <0.0f || dB_value >180.0f) continue; //错误数据过滤
             latest_dB_valid = true;
             mqtt_report_set_float("dB_value", dB_value);
             mqtt_report_set_bool("connect_status", true);

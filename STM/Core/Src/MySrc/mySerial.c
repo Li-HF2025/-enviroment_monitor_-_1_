@@ -252,7 +252,6 @@ static void uart_rx_task(void *param){
                         if (item.payload_len > 0) {
                             memcpy(item.payload, parsed_msg.payload, item.payload_len);
                         }
-                        msg_Report(item.cmd, item.payload, item.payload_len);
                         if(osMessageQueuePut(main_queue, &item, 0U, 15U) != osOK){
                             msg_Report(CMD_TEST, (uint8_t*)"Main Queue Err", 14);
                         }

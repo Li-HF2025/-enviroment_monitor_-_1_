@@ -119,7 +119,7 @@ static void StartDecibelTask(void *argument)
             msg_Response(CMD_DB, (uint8_t *)report_str, (uint16_t)strlen(report_str));
             last_report_tick = now;
         }
-        HAL_Delay(100); // 避免任务过于频繁地运行
+        osDelay(100); // 避免任务过于频繁地运行
     }
 }
 

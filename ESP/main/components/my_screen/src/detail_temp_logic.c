@@ -26,6 +26,8 @@ static void temp_task(void *arg){
             float temp_value = (float)temp_raw / 10.0f;
             float humidity_value = (float)humidity_raw / 10.0f;
 
+            if(temp_value <= -100.0f || humidity_value <0.0f) continue;//错误数据过滤
+
             latest_temp_value = temp_value;
             latest_humidity_value = humidity_value;
             latest_temp_valid = true;

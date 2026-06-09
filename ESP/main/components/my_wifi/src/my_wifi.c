@@ -1,9 +1,6 @@
 #include "my_wifi.h"
-#include "my_mqtt.h"
-#include "my_ota.h"
 #include "my_nvs.h"
 #include <string.h>
-#include "detail_time_logic.h"
 #ifdef CONFIG_MY_WIFI_SSID
 #define ESP_WIFI_SSID CONFIG_MY_WIFI_SSID
 #else
@@ -41,6 +38,8 @@ static uint8_t s_retry_num = 0;
 static bool s_user_disconnect = false;
 static bool s_manual_connecting = false;
 
+ESP_EVENT_DEFINE_BASE(MY_WIFI_EVENT_BASE);// 为事件基赋值
+
 /**
  * @brief Wi-Fi事件处理程序
  */
@@ -61,7 +60,7 @@ static void wifi_event_handler(void* arg,esp_event_base_t event_base
                 ESP_LOGI("WIFI事件", "连接失败，正在重试... (%d/%d)", s_retry_num, EXAMPLE_ESP_MAXIMUM_RETRY);
             }else{
                 xEventGroupSetBits(wifi_event_group, WIFI_FAIL_BIT);//连接失败事件
-                mqtt_app_stop();
+                esp_event_post(MY_WIFI_EVENT_BASE,MY_WIFI_EVENT_DISCONNECTED,NULL,0,portMAX_DELAY);
                 ESP_LOGI("WIFI事件", "连接失败，达到最大重试次数");
             }
         }
@@ -79,13 +78,13 @@ static void ip_event_handler(void* arg,esp_event_base_t event_base
         s_retry_num = 0;//重置重试计数器
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);//连接成功事件
 
-        mqtt_app_start();
+        esp_event_post(MY_WIFI_EVENT_BASE,MY_WIFI_EVENT_CONNETED,NULL,0,portMAX_DELAY);
     }
 }
 
 void wifi_disconnect(void){
     s_user_disconnect = true;           // 标记为用户主动断开
-    mqtt_app_stop();                    // 立即停止 MQTT（如果需要）
+    esp_event_post(MY_WIFI_EVENT_BASE,MY_WIFI_EVENT_DISCONNECTED,NULL,0,portMAX_DELAY);
     esp_err_t err = esp_wifi_disconnect();
     if (err != ESP_OK) {
         ESP_LOGW("WIFI断开", "esp_wifi_disconnect 返回 %d", err);

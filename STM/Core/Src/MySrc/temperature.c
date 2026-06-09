@@ -250,7 +250,7 @@ void DHT22_Task(void *argument) {
             msg_Response(CMD_TEMPERATURE, (const uint8_t *)err_str, (uint16_t)strlen(err_str));
         }
         
-        osDelay(1000); // 间隔1分钟读取一次
+        osDelay(1000 * 60); // 间隔1分钟读取一次
     }
 }
 

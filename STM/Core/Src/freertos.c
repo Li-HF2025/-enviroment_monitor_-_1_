@@ -29,7 +29,6 @@
 #include "OLED.h"
 #include "db.h"
 #include "main_task.h"
-#include "OLED.h"
 #include "temperature.h"
 /* USER CODE END Includes */
 

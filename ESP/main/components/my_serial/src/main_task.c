@@ -11,7 +11,6 @@ extern QueueHandle_t temp_queue; // 温湿度数据队列句柄
 
 static void mian_task(void *arg){
     UartTxItem item;
-    BaseType_t status;
     while(1){
         if(xQueueReceive(main_queue, &item, portMAX_DELAY) == pdTRUE){
             char *payload = (char *)malloc(item.payload_len + 1);

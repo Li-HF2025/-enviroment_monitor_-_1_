@@ -26,4 +26,11 @@
 void wifi_start(void);
 bool wifi_connect(const char* ssid, const char* password);
 void wifi_disconnect(void);
+
+typedef enum {
+    MY_WIFI_EVENT_CONNETED,
+    MY_WIFI_EVENT_DISCONNECTED,
+    MY_WIFI_EVENT_CONNECT_FAILED,
+}my_wifi_event_id_t;
+ESP_EVENT_DECLARE_BASE(MY_WIFI_EVENT_BASE);
 #endif /* __MY_WIFI_H__ */

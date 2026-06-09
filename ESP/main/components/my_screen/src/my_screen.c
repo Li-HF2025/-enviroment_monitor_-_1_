@@ -137,7 +137,7 @@ static void touch_read_cb(lv_indev_t *indev, lv_indev_data_t *data){
         data->point.y = mapped_y;
         data->state = LV_INDEV_STATE_PRESSED;
         screen_idle_lock_mark_activity(); // 标记有活动,重置屏幕空闲锁的计时
-        ESP_LOGI(TAG, "Touch at mapped(%d, %d) raw(%d, %d), strength: %d", mapped_x, mapped_y, raw_x, raw_y, points[0].strength);
+        ESP_LOGD(TAG, "Touch at mapped(%d, %d) raw(%d, %d), strength: %d", mapped_x, mapped_y, raw_x, raw_y, points[0].strength);
     }else{
         data->state = LV_INDEV_STATE_RELEASED;
     }
