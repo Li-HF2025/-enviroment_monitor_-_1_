@@ -84,10 +84,10 @@ void main_task(void *pvParameters){
                     OLED_WriteString(1,0,"Test Cmd Recv");
                     break;
                 case CMD_DB:
-                    if(strcmp(buf, "DB Init") == 0){
+                    if (item.payload_len >= 1 && item.payload[0] == SUB_CMD_INIT) {
                         DB_Init();
                         msg_Report(CMD_DB, (uint8_t*)"DB Init OK", 10);
-                    } else if(strcmp(buf, "DB DeInit") == 0){
+                    } else if(item.payload_len >= 1 && item.payload[0] == SUB_CMD_DEINIT) {
                         DB_DeInit();
                         msg_Report(CMD_DB, (uint8_t*)"DB DeInit OK", 12);
                     }else{
@@ -95,10 +95,10 @@ void main_task(void *pvParameters){
                     }
                     break;
                 case CMD_TEMPERATURE:
-                    if(strcmp(buf, "DHT22 Init") == 0){
+                    if(item.payload_len >= 1 && item.payload[0] == SUB_CMD_INIT){
                         DHT22_Init();
                         msg_Report(CMD_TEMPERATURE, (uint8_t*)"DHT22 Init OK", 14);
-                    } else if(strcmp(buf, "DHT22 DeInit") == 0){
+                    } else if(item.payload_len >= 1 && item.payload[0] == SUB_CMD_DEINIT){
                         DHT22_DeInit();
                         msg_Report(CMD_TEMPERATURE, (uint8_t*)"DHT22 DeInit OK", 15);
                     } else {

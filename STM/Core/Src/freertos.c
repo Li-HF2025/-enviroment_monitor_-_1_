@@ -104,9 +104,7 @@ void MX_FREERTOS_Init(void) {
   mySerial_init();
 
   DHT22_RTOS_Init();
-  DHT22_Init();
   DB_RTOS_Init();
-  DB_Init();
   main_task_RTOS_Init();
   /* USER CODE END RTOS_THREADS */
 

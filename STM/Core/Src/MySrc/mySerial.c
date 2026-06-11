@@ -292,37 +292,45 @@ void mySerial_init(void)
     msg_Report(CMD_TEST, (uint8_t*)"Serial Init OK", 14);
 }
 
+static uint16_t g_seq_num = 0;
+
 void msg_Report(uint8_t cmd, const uint8_t *payload, uint16_t payload_len){
-    static uint16_t seq_num = 0; // 全局序列号，发送每条消息时递增
     UartTxItem tx_item;
     tx_item.cmd = cmd;
     tx_item.msg_type = MSG_TYPE_REPORT;
-    tx_item.seq = seq_num++;
+    tx_item.seq = g_seq_num++;
     memcpy(tx_item.payload, payload, payload_len);
     tx_item.payload_len = payload_len;
     osMessageQueuePut(uart_tx_queue, &tx_item, 0U, 10U);
 }
 
 void msg_Response(uint8_t cmd, const uint8_t *payload, uint16_t payload_len){
-    static uint16_t seq_num = 0; // 全局序列号，发送每条消息时递增
     UartTxItem tx_item;
     tx_item.cmd = cmd;
     tx_item.msg_type = MSG_TYPE_RESPONSE;
-    tx_item.seq = seq_num++;
+    tx_item.seq = g_seq_num++;
     memcpy(tx_item.payload, payload, payload_len);
     tx_item.payload_len = payload_len;
     osMessageQueuePut(uart_tx_queue, &tx_item, 0U, 10U);
 }
 
 void msg_Request(uint8_t cmd, const uint8_t *payload, uint16_t payload_len){
-    static uint16_t seq_num = 0; // 全局序列号，发送每条消息时递增
     UartTxItem tx_item;
     tx_item.cmd = cmd;
     tx_item.msg_type = MSG_TYPE_REQUEST;
-    tx_item.seq = seq_num++;
+    tx_item.seq = g_seq_num++;
     memcpy(tx_item.payload, payload, payload_len);
     tx_item.payload_len = payload_len;
     osMessageQueuePut(uart_tx_queue, &tx_item, 0U, 10U);
+}
+
+void sensor_report(uint8_t cmd,uint8_t sensor_type,int16_t value_x10,uint8_t status){
+    SensorDataBin data;
+    data.sensor_type = sensor_type;
+    data.status = status;
+    data.value_x10 = value_x10;
+    data.reserved = 0;
+    msg_Report(cmd, (uint8_t*)&data, sizeof(data));
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart){

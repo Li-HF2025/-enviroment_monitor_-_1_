@@ -4,8 +4,7 @@
 #include "lvgl.h"
 #include "esp_log.h"
 #include "my_serial.h"
-#include "mqtt_report.h"
-#include "my_mqtt.h"
+#include "mqtt_report_dispatcher.h"
 extern lv_obj_t * ui_dBNum;//main01的dB数值显示标签
 
 static float latest_dB_value = 0.0f;//不直接修改ui界面显示的dB数值，而是通过这个变量存储最新的dB值，定时器周期性更新显示
@@ -20,19 +19,19 @@ static void dB_task(void *arg){
             latest_dB_value = dB_value;
             if(dB_value <0.0f || dB_value >180.0f) continue; //错误数据过滤
             latest_dB_valid = true;
-            mqtt_report_set_float("dB_value", dB_value);
-            mqtt_report_set_bool("connect_status", true);
-            mqtt_report_request_publish();
+            esp_event_post(SENSOR_EVENT_BASE, SENSOR_DB_UPDATED, &dB_value, sizeof(float), 0);
         }
     }
 }
 
 void dB_init(){
-    msg_Request(CMD_DB, (const uint8_t *)"DB Init", 7);
+    uint8_t sub_cmd = SUB_CMD_INIT;
+    msg_Request(CMD_DB, &sub_cmd, 1);
 }
 
 void dB_deinit(){
-    msg_Request(CMD_DB, (const uint8_t *)"DB DeInit", 9);
+    uint8_t sub_cmd = SUB_CMD_DEINIT;
+    msg_Request(CMD_DB, &sub_cmd, 1);
 }
 
 bool dB_get_latest_valid(void)
@@ -56,4 +55,8 @@ void dB_start(){
     dB_queue = xQueueCreate(10, sizeof(float));
     xTaskCreate(dB_task, "dB_task", 2048, NULL, 10, NULL);
     dB_init();
+}
+
+QueueHandle_t dB_logic_get_queue(void){
+    return dB_queue;
 }

@@ -101,22 +101,10 @@ static void StartDecibelTask(void *argument)
 
         float current_decibel = calculate_db(filtered);
         db_smooth = db_smooth * (1.0f - DB_SMOOTH_ALPHA) + current_decibel * DB_SMOOTH_ALPHA;
-
-        // uint16_t db_int = (uint16_t)(current_decibel * 10.0f + 0.5f);
-        // OLED_WriteString(2, 4, "    ");
-        // char db_str[8];
-        // uint16_t db_whole = db_int / 10U;
-        // uint16_t db_frac = db_int % 10U;
-        // snprintf(db_str, sizeof(db_str), "%u.%u", db_whole, db_frac);
-        // OLED_WriteString(2, 4, db_str);
         uint32_t now = osKernelGetTickCount();
         if ((now - last_report_tick) >= DB_REPORT_INTERVAL_MS) {
-            uint16_t report_int = (uint16_t)(db_smooth * 10.0f + 0.5f);
-            uint16_t report_whole = report_int / 10U;
-            uint16_t report_frac = report_int % 10U;
-            char report_str[8];
-            snprintf(report_str, sizeof(report_str), "%u.%u", report_whole, report_frac);
-            msg_Response(CMD_DB, (uint8_t *)report_str, (uint16_t)strlen(report_str));
+            uint16_t db_x10 = (uint16_t)(db_smooth * 10.0f + 0.5f);
+            sensor_report(CMD_DB, 0x02, (int16_t)db_x10, 0x00);
             last_report_tick = now;
         }
         osDelay(100); // 避免任务过于频繁地运行

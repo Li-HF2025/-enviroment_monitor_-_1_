@@ -4,6 +4,7 @@
 #include "my_serial.h"
 #include "my_wifi.h"
 #include "my_mqtt.h"
+#include "mqtt_report_dispatcher.h"
 #include "my_screen.h"
 #include "main_task.h"
 #include "my_ota.h"
@@ -15,7 +16,6 @@ void app_main(void)
     main_task_init();
     my_nvs_init();
     wifi_start();
-    // mqtt_app_start();
     screen_init();
     ato_init();
     // 初始化完成后验证固件存活（自动回滚检查点）

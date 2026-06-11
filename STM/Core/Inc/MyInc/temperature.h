@@ -3,6 +3,14 @@
 #include "stm32f1xx_hal.h"
 #include "cmsis_os.h"
 
+/* DHT22 错误值 / 有效范围宏 */
+#define DHT22_ERROR_TEMP       (-1000.0f)
+#define DHT22_ERROR_HUMI       (-1.0f)
+#define DHT22_VALID_TEMP_MIN   (-40.0f)
+#define DHT22_VALID_TEMP_MAX   (80.0f)
+#define DHT22_VALID_HUMI_MIN   (0.0f)
+#define DHT22_VALID_HUMI_MAX   (100.0f)
+
 #ifdef __cplusplus
 extern "C" {
 #endif

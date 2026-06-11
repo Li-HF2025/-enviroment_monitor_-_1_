@@ -4,9 +4,7 @@
 #include "lvgl.h"
 #include "esp_log.h"
 #include "my_serial.h"
-#include "mqtt_report.h"
-#include "my_mqtt.h"
-
+#include "mqtt_report_dispatcher.h"
 QueueHandle_t temp_queue;// 温湿度数据队列句柄
 
 static float latest_temp_value = 0.0f;//温度
@@ -31,21 +29,21 @@ static void temp_task(void *arg){
             latest_temp_value = temp_value;
             latest_humidity_value = humidity_value;
             latest_temp_valid = true;
+            esp_event_post(SENSOR_EVENT_BASE, SENSOR_TEMP_UPDATED, &temp_value, sizeof(float), 0);
+            esp_event_post(SENSOR_EVENT_BASE, SENSOR_HUMI_UPDATED, &humidity_value, sizeof(float), 0);
 
-            mqtt_report_set_float("temp_value", temp_value);
-            mqtt_report_set_float("humi_value", humidity_value);
-            mqtt_report_set_bool("connect_status", true);
-            mqtt_report_request_publish();
         }
     }
 }
 
 void temp_init(){
-    msg_Request(CMD_TEMPERATURE, (const uint8_t *)"DHT22 Init", 11);
+    uint8_t sub_cmd = SUB_CMD_INIT;
+    msg_Request(CMD_TEMPERATURE, &sub_cmd, 1);
 }
 
 void temp_deinit(){
-    msg_Request(CMD_TEMPERATURE, (const uint8_t *)"DHT22 DeInit", 13);
+    uint8_t sub_cmd = SUB_CMD_DEINIT;
+    msg_Request(CMD_TEMPERATURE, &sub_cmd, 1);
 }
 
 bool temp_get_latest_valid(void)
@@ -74,4 +72,8 @@ void temp_start(){
     temp_queue = xQueueCreate(10, sizeof(UartTxItem));
     xTaskCreate(temp_task, "temp_task", 2048, NULL, 10, NULL);
     temp_init();
+}
+
+QueueHandle_t temp_logic_get_queue(void){
+    return temp_queue;
 }

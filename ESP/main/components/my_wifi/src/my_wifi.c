@@ -78,7 +78,7 @@ static void ip_event_handler(void* arg,esp_event_base_t event_base
         s_retry_num = 0;//重置重试计数器
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);//连接成功事件
 
-        esp_event_post(MY_WIFI_EVENT_BASE,MY_WIFI_EVENT_CONNETED,NULL,0,portMAX_DELAY);
+        esp_event_post(MY_WIFI_EVENT_BASE,MY_WIFI_EVENT_CONNECTED,NULL,0,portMAX_DELAY);
     }
 }
 

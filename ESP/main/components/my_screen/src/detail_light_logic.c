@@ -3,9 +3,7 @@
 #include "lvgl.h"
 #include "esp_log.h"
 #include "my_serial.h"
-#include "mqtt_report.h"
-#include "my_mqtt.h"
-
+#include "mqtt_report_dispatcher.h"
 static float latest_light_value = 0.0f;
 static volatile bool latest_light_valid = false;
 
@@ -17,19 +15,19 @@ static void light_task(void *arg){
         if(xQueueReceive(light_queue, &light_value, portMAX_DELAY) == pdTRUE){
             latest_light_value = light_value;
             latest_light_valid = true;
-            mqtt_report_set_float("light_value", light_value);
-            mqtt_report_set_bool("connect_status", true);
-            mqtt_report_request_publish();
+            esp_event_post(SENSOR_EVENT_BASE, SENSOR_LIGHT_UPDATED, &light_value, sizeof(float), 0);
         }
     }
 }
 
 void light_init(void){
-    msg_Request(CMD_LIGHT, (const uint8_t *)"LIGHT Init", 11);
+    uint8_t sub_cmd = SUB_CMD_INIT;
+    msg_Request(CMD_LIGHT, &sub_cmd, 1);
 }
 
 void light_deinit(void){
-    msg_Request(CMD_LIGHT, (const uint8_t *)"LIGHT DeInit", 13);
+    uint8_t sub_cmd = SUB_CMD_DEINIT;
+    msg_Request(CMD_LIGHT, &sub_cmd, 1);
 }
 
 bool light_get_latest_valid(void)

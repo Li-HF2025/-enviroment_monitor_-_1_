@@ -1,52 +1,55 @@
 #include "main_task.h"
 #include "my_serial.h"
 #include "esp_log.h"
+#include "detail_dB_logic.h"
+#include "detail_temp_logic.h"
+#include "string.h"
 #define MAIN_QUEUE_SIZE 20
 static const char *TAG = "MAIN_TASK";
 QueueHandle_t main_queue;
-
-extern QueueHandle_t uart_tx_queue; // UART发送事件队列句柄
-extern QueueHandle_t dB_queue; // 声强数据队列句柄
-extern QueueHandle_t temp_queue; // 温湿度数据队列句柄
 
 static void mian_task(void *arg){
     UartTxItem item;
     while(1){
         if(xQueueReceive(main_queue, &item, portMAX_DELAY) == pdTRUE){
-            char *payload = (char *)malloc(item.payload_len + 1);
-            if(payload == NULL){
-                ESP_LOGW(TAG, "payload malloc failed");
-                continue;
-            }
-
+            char payload[PROTOCOL_MAX_PAYLOAD + 1];
             memcpy(payload, item.payload, item.payload_len);
             payload[item.payload_len] = '\0';
 
-            if(item.msg_type == MSG_TYPE_REQUEST){
-                free(payload);
+            // 统一 SensorDataBin 解析（STM32 端升级后的新格式）
+            if (item.payload_len >= sizeof(SensorDataBin)) {
+                SensorDataBin sensor;
+                memcpy(&sensor, item.payload, sizeof(SensorDataBin));
+
+                if (sensor.status & 0x04) {
+                    ESP_LOGW(TAG, "传感器故障: type=0x%02X", sensor.sensor_type);
+                    continue;
+                }
+
+                float value = sensor.value_x10 / 10.0f;
+
+                if (sensor.sensor_type == 0x02) {
+                    if (dB_logic_get_queue() != NULL) {
+                        xQueueSend(dB_logic_get_queue(), &value, pdMS_TO_TICKS(10));
+                    }
+                } else if (sensor.sensor_type == 0x01 || sensor.sensor_type == 0x04) {
+                    UartTxItem temp_item;
+                    temp_item.cmd = CMD_TEMPERATURE;
+                    temp_item.msg_type = item.msg_type;
+                    temp_item.payload_len = sizeof(SensorDataBin);
+                    memcpy(temp_item.payload, &sensor, sizeof(SensorDataBin));
+                    if (temp_logic_get_queue() != NULL) {
+                        xQueueSend(temp_logic_get_queue(), &temp_item, pdMS_TO_TICKS(10));
+                    }
+                }
+
                 continue;
-            }else if(item.cmd == CMD_TEMPERATURE){
-                if(temp_queue != NULL){
-                    xQueueSend(temp_queue, &item, pdMS_TO_TICKS(10));
-                }
-            }else if(item.msg_type == MSG_TYPE_RESPONSE){
-                if(item.cmd == CMD_DB){
-                    float dB_value = atof(payload);
-                    if(dB_queue != NULL){
-                        xQueueSend(dB_queue, &dB_value, pdMS_TO_TICKS(10));
-                    }
-                }
-            }else if(item.msg_type == MSG_TYPE_REPORT){
-                ESP_LOGI(TAG, "收到上报消息: cmd=0x%02X, payload=%s", item.cmd, payload);
-                if(item.cmd == CMD_DB){
-                    float dB_value = atof(payload);
-                    if(dB_queue != NULL){
-                        xQueueSend(dB_queue, &dB_value, pdMS_TO_TICKS(10));
-                    }
-                }
             }
 
-            free(payload);
+            // 以下为旧格式兼容（子命令码等非传感器帧）
+            if(item.msg_type == MSG_TYPE_REQUEST){
+                continue;
+            }
         }
     }
 }

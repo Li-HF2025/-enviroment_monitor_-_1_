@@ -11,6 +11,7 @@
 通过这个项目，我掌握了：
 
 - STM32 与 ESP32 双 MCU 之间自定义二进制通信协议的设计与实现
+- **协议演进：从 ASCII 字符串到统一 SensorDataBin 二进制结构体，从 strcmp 到单字节子命令码**
 - FreeRTOS 多任务编程：队列、事件组、任务通知、互斥锁、状态机
 - LVGL 图形库的使用和 SquareLine Studio 可视化 UI 设计
 - MQTT 协议接入 OneNET 物联网平台（认证、主题设计、属性上报）
@@ -22,6 +23,9 @@
 - HMAC-SHA256 API 鉴权与 OneNET 云端对接
 - NVS 持久化存储与 Wi-Fi 凭据管理
 - ESP-IDF 组件化工程结构设计与 CMake 构建系统
+- **ESP-IDF Event Loop 机制：自定义事件基、回调模式解耦（WiFi → MQTT、wifi_scan → UI）**
+- **传感器数据上报调度器设计：事件驱动的 data_report_dispatcher，定时批量上报替代逐点发布**
+- **嵌入式架构解耦实践：单一职责原则、依赖反转（extern → getter 函数封装）**
 - 嵌入式系统中常见架构问题的识别与改进思路
 
 ## 实物展示

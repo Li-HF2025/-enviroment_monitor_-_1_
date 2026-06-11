@@ -20,6 +20,19 @@ typedef enum {
     CMD_LIGHT = 0x03 // 光照数据
 }CMDType;
 
+typedef struct __attribute__((packed)) {
+    uint8_t  sensor_type;   // 0x01=温度, 0x02=分贝, 0x03=光照, 0x04=湿度
+    uint8_t  status;        // bit0=数据有效, bit1=超量程, bit2=传感器故障
+    int16_t  value_x10;     // 数值 × 10（有符号，支持负温度）
+    uint16_t reserved;      // 预留扩展
+} SensorDataBin;  // 固定 6 字节
+
+typedef enum {
+    SUB_CMD_INIT    = 0x01,  // 初始化/使能传感器
+    SUB_CMD_DEINIT  = 0x02,  // 反初始化/停用传感器
+    SUB_CMD_STATUS  = 0x03,  // 查询传感器状态
+} ProtocolSubCmd;
+
 typedef struct {
     uint8_t sof[2]; // 开始帧
     uint8_t version; // 协议版本
@@ -43,4 +56,5 @@ void mySerial_RTOS_Init(void);
 void msg_Report(uint8_t cmd, const uint8_t *payload, uint16_t payload_len);
 void msg_Response(uint8_t cmd, const uint8_t *payload, uint16_t payload_len);
 void msg_Request(uint8_t cmd, const uint8_t *payload, uint16_t payload_len);
+void sensor_report(uint8_t cmd,uint8_t sensor_type,int16_t value_x10,uint8_t status);
 #endif

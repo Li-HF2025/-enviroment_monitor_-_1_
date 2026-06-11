@@ -184,75 +184,72 @@ int8_t DHT22_Parse_Data(uint8_t data[5], float *temperature, float *humidity) {
 void DHT22_Read(float *temperature, float *humidity) {
     uint8_t data[5];
     g_dht22_last_error = DHT22_OK;
-    *temperature = -1000.0f;
-    *humidity = -1.0f;
+    *temperature = DHT22_ERROR_TEMP;
+    *humidity = DHT22_ERROR_HUMI;
     int8_t raw_status = DHT22_Read_Raw(data);
     if (raw_status == DHT22_OK) {
         int8_t parse_status = DHT22_Parse_Data(data, temperature, humidity);
         if (parse_status != DHT22_OK) {
             g_dht22_last_error = parse_status;
-            *temperature = -1000.0f; // 解析失败标志
-            *humidity = -1.0f;
+            *temperature = DHT22_ERROR_TEMP;
+            *humidity = DHT22_ERROR_HUMI;
         }
     } else {
         g_dht22_last_error = raw_status;
-        *temperature = -1000.0f; // 读取失败标志
-        *humidity = -1.0f;
+        *temperature = DHT22_ERROR_TEMP;
+        *humidity = DHT22_ERROR_HUMI;
     }
 }
 
 void DHT22_Send_Report(float temperature, float humidity) {
-    uint8_t payload[4];
     int16_t temp10 = (int16_t)(temperature * 10.0f + (temperature >= 0.0f ? 0.5f : -0.5f));
     uint16_t hum10 = (uint16_t)(humidity * 10.0f + 0.5f);
 
-    payload[0] = (uint8_t)(temp10 & 0xFF);
-    payload[1] = (uint8_t)((temp10 >> 8) & 0xFF);
-    payload[2] = (uint8_t)(hum10 & 0xFF);
-    payload[3] = (uint8_t)((hum10 >> 8) & 0xFF);
-
-    msg_Response(CMD_TEMPERATURE, payload, sizeof(payload));
+    sensor_report(CMD_TEMPERATURE, 0x01, temp10, 0x00);
+    sensor_report(CMD_TEMPERATURE, 0x04, hum10, 0x00);
+    
 }
 
 void DHT22_Task(void *argument) {
-    msg_Report(CMD_TEMPERATURE, (uint8_t*)"DHT22 Task running", 20);
     while (1) {
-        if (!g_dht22_enabled) {
-            osDelay(200);
-            continue;
-        }
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
 
-        OLED_WriteString(0, 0, "Temp:       ");
-        OLED_WriteString(1, 0, "Hum:        ");
-        float temperature, humidity;
-        DHT22_Read(&temperature, &humidity);
-        
-        if (temperature > -100.0f && humidity >= 0.0f) {
-            char temp_str[24], hum_str[24];
-            int temp10 = (int)(temperature * 10.0f + (temperature >= 0.0f ? 0.5f : -0.5f));
-            int hum10 = (int)(humidity * 10.0f + 0.5f);
-            int temp_int = temp10 / 10;
-            int temp_frac = temp10 < 0 ? -(temp10 % 10) : (temp10 % 10);
-            int hum_int = hum10 / 10;
-            int hum_frac = hum10 % 10;
+        while (g_dht22_enabled) {
+            OLED_WriteString(0, 0, "Temp:       ");
+            OLED_WriteString(1, 0, "Hum:        ");
+            float temperature, humidity;
+            DHT22_Read(&temperature, &humidity);
 
-            snprintf(temp_str, sizeof(temp_str), "Temp: %d.%dC", temp_int, temp_frac);
-            snprintf(hum_str, sizeof(hum_str), "Hum: %d.%d%%", hum_int, hum_frac);
-            OLED_WriteString(0, 0, temp_str);
-            OLED_WriteString(1, 0, hum_str);
-            DHT22_Send_Report(temperature, humidity);
-            
-        } else {
-            char err_str[24];
-            snprintf(err_str, sizeof(err_str), "ERR:%d", (int)g_dht22_last_error);
-            OLED_WriteString(0, 0, err_str);
-            OLED_WriteString(1, 0, err_str);
-            msg_Response(CMD_TEMPERATURE, (const uint8_t *)err_str, (uint16_t)strlen(err_str));
+            if (temperature > DHT22_VALID_TEMP_MIN && humidity >= DHT22_VALID_HUMI_MIN) {
+                char temp_str[24], hum_str[24];
+                int temp10 = (int)(temperature * 10.0f + (temperature >= 0.0f ? 0.5f : -0.5f));
+                int hum10 = (int)(humidity * 10.0f + 0.5f);
+                int temp_int = temp10 / 10;
+                int temp_frac = temp10 < 0 ? -(temp10 % 10) : (temp10 % 10);
+                int hum_int = hum10 / 10;
+                int hum_frac = hum10 % 10;
+
+                snprintf(temp_str, sizeof(temp_str), "Temp: %d.%dC", temp_int, temp_frac);
+                snprintf(hum_str, sizeof(hum_str), "Hum: %d.%d%%", hum_int, hum_frac);
+                OLED_WriteString(0, 0, temp_str);
+                OLED_WriteString(1, 0, hum_str);
+                DHT22_Send_Report(temperature, humidity);
+
+            } else {
+                char err_str[24];
+                snprintf(err_str, sizeof(err_str), "ERR:%d", (int)g_dht22_last_error);
+                OLED_WriteString(0, 0, err_str);
+                OLED_WriteString(1, 0, err_str);
+                sensor_report(CMD_TEMPERATURE, 0x01, 0, 0x04);
+                sensor_report(CMD_TEMPERATURE, 0x04, 0, 0x04);
+            }
+
+            osDelay(2000);
         }
-        
-        osDelay(1000 * 60); // 间隔1分钟读取一次
     }
 }
+
+static TaskHandle_t dht22TaskHandle = NULL;
 
 void DHT22_RTOS_Init(void) {
     CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -264,10 +261,9 @@ void DHT22_RTOS_Init(void) {
     }
     DHT22_Pin_Output();
     HAL_GPIO_WritePin(DHT22_PORT, DHT22_PIN, GPIO_PIN_SET);
-    if(osThreadNew(DHT22_Task, NULL, &dht22_task_attr) == NULL) {
+    dht22TaskHandle = osThreadNew(DHT22_Task, NULL, &dht22_task_attr);
+    if(dht22TaskHandle == NULL) {
         OLED_WriteString(4, 0, "DHT22 Task Err");
-    }else{
-        // msg_Report(CMD_TEMPERATURE, (uint8_t*)"DHT22 Task OK", 15);
     }
     g_dht22_enabled = false;
 }
@@ -276,6 +272,7 @@ void DHT22_Init(void) {
     DHT22_Pin_Output();
     HAL_GPIO_WritePin(DHT22_PORT, DHT22_PIN, GPIO_PIN_SET);
     g_dht22_enabled = true;
+    xTaskNotifyGive(dht22TaskHandle);
 }
 
 void DHT22_DeInit(void) {
