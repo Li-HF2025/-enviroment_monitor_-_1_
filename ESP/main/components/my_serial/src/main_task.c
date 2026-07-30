@@ -16,8 +16,9 @@ static void mian_task(void *arg){
             memcpy(payload, item.payload, item.payload_len);
             payload[item.payload_len] = '\0';
 
-            // 统一 SensorDataBin 解析（STM32 端升级后的新格式）
-            if (item.payload_len >= sizeof(SensorDataBin)) {
+            // 统一 SensorDataBin 解析（仅响应/上报类型的传感器命令）
+            if ((item.cmd == CMD_DB || item.cmd == CMD_TEMPERATURE || item.cmd == CMD_LIGHT)
+                && item.payload_len >= sizeof(SensorDataBin)) {
                 SensorDataBin sensor;
                 memcpy(&sensor, item.payload, sizeof(SensorDataBin));
 

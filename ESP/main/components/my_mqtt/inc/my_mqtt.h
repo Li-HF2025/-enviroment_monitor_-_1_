@@ -33,4 +33,5 @@ void mqtt_subscribe(const char *topic);
 void mqtt_unsubscribe(const char *topic);
 void mqtt_publish_all_report(void);
 void mqtt_report_request_publish(void);
+bool mqtt_publish_single_report(const char *key, float value);
 #endif /* __MY_MQTT_H__ */

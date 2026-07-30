@@ -12,4 +12,10 @@ void OLED_WriteNum(uint8_t Line, uint8_t Column, int32_t Value);
 void OLED_UpdateRect(uint8_t x, uint8_t y, uint8_t w, uint8_t h);
 void OLED_DisplayImage(uint8_t BitLine, uint8_t BitColumn,const uint8_t *Image, uint8_t ImageWidth, uint8_t ImageHeight);
 void OLED_ClearImage(uint8_t BitLine, uint8_t BitColumn, uint8_t ImageWidth, uint8_t ImageHeight);
+/* ===== 调试宏：发布版本定义 DBG_OLED_DISABLE 即可关闭全部 OLED 调试输出 ===== */
+#ifdef DBG_OLED_DISABLE
+  #define DBG_OLED(line, col, str)  ((void)0)
+#else
+  #define DBG_OLED(line, col, str)  OLED_WriteString(line, col, str)
+#endif
 #endif /* __OLED_H */

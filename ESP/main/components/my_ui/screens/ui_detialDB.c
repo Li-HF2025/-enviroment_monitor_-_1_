@@ -16,12 +16,24 @@ static lv_timer_t * dB_ui_timer = NULL;
 static void dB_ui_timer_cb(lv_timer_t * timer)
 {
     LV_UNUSED(timer);
-    if (dB_get_latest_valid() && ui_dBValue) {
-        float v = dB_get_latest_value();
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%.1f dB", v);
-        lv_label_set_text(ui_dBValue, buf);
-    }
+    if (!dB_get_latest_valid()) return;
+
+    char buf[16];
+    float v = dB_get_latest_value();
+    snprintf(buf, sizeof(buf), "%.1f dB", v);
+    if (ui_dBValue) lv_label_set_text(ui_dBValue, buf);
+
+    v = dB_get_max();
+    snprintf(buf, sizeof(buf), "%.1f", v);
+    if (ui_dBMaxVal) lv_label_set_text(ui_dBMaxVal, buf);
+
+    v = dB_get_min();
+    snprintf(buf, sizeof(buf), "%.1f", v);
+    if (ui_dBMinVal) lv_label_set_text(ui_dBMinVal, buf);
+
+    v = dB_get_avg();
+    snprintf(buf, sizeof(buf), "%.1f", v);
+    if (ui_dBAvgVal) lv_label_set_text(ui_dBAvgVal, buf);
 }
 
 static lv_obj_t * create_card(lv_obj_t * parent, int y, int h)

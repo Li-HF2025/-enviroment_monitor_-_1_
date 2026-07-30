@@ -17,17 +17,29 @@ static lv_timer_t * temp_ui_timer = NULL;
 static void temp_ui_timer_cb(lv_timer_t * timer)
 {
     LV_UNUSED(timer);
-    if (temp_get_latest_valid()) {
-        float t = temp_get_latest_value();
-        float h = temp_get_latest_humidity();
+    if (!temp_get_latest_valid()) return;
 
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%.1f C", t);
-        if (ui_tempValue) lv_label_set_text(ui_tempValue, buf);
+    char buf[16];
+    float t = temp_get_latest_value();
+    float h = temp_get_latest_humidity();
 
-        snprintf(buf, sizeof(buf), "%.1f %%", h);
-        if (ui_humidityValue) lv_label_set_text(ui_humidityValue, buf);
-    }
+    snprintf(buf, sizeof(buf), "%.1f C", t);
+    if (ui_tempValue) lv_label_set_text(ui_tempValue, buf);
+
+    snprintf(buf, sizeof(buf), "%.1f %%", h);
+    if (ui_humidityValue) lv_label_set_text(ui_humidityValue, buf);
+
+    t = temp_get_max();
+    snprintf(buf, sizeof(buf), "%.1f", t);
+    if (ui_tempMaxVal) lv_label_set_text(ui_tempMaxVal, buf);
+
+    t = temp_get_min();
+    snprintf(buf, sizeof(buf), "%.1f", t);
+    if (ui_tempMinVal) lv_label_set_text(ui_tempMinVal, buf);
+
+    t = temp_get_avg();
+    snprintf(buf, sizeof(buf), "%.1f", t);
+    if (ui_tempAvgVal) lv_label_set_text(ui_tempAvgVal, buf);
 }
 
 static lv_obj_t * create_card(lv_obj_t * parent, int y, int h)

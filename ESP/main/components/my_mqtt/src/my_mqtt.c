@@ -1,6 +1,7 @@
 #include "my_mqtt.h"
 
 #include "mqtt_report.h"
+#include "my_serial.h"  // 下行命令转发 STM32 需要 CMD_DB / SUB_CMD_INIT / msg_Request
 
 #ifdef CONFIG_BROKER_URL
 #define BROKER_URL CONFIG_BROKER_URL
@@ -101,6 +102,24 @@ void mqtt_publish_all_report(void)
     mqtt_send_message(s_onenet_dp_post_topic, payload);
 }
 
+/**
+ * @brief 发布单条传感器数据（用于离线补传）
+ * @return true=发送成功, false=未连接
+ */
+bool mqtt_publish_single_report(const char *key, float value)
+{
+    if (!client || !s_mqtt_connected) return false;
+
+    char payload[256];
+    long long ms = esp_timer_get_time() / 1000LL;
+    snprintf(payload, sizeof(payload),
+             "{\"id\":\"%lld\",\"version\":\"1.0\",\"params\":{\"%s\":{\"value\":%.2f}}}",
+             ms, key, value);
+
+    mqtt_send_message(s_onenet_dp_post_topic, payload);
+    return true;
+}
+
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data){
     ESP_LOGD("MQTT","事件类型：%s,事件ID:%d", base, event_id);
     esp_mqtt_event_handle_t event = event_data;
@@ -151,10 +170,33 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             // ESP_LOGI("MQTT","发布成功，消息ID:%d", event->msg_id);
             break;
         case MQTT_EVENT_DATA://接收到数据事件
-            // ESP_LOGI("MQTT","接收到数据，主题:%.*s,数据:%.*s", event->topic_len, event->topic, event->data_len, event->data);
-            // 可以在这里处理接收到的数据，例如根据主题进行不同的处理
-            //@TODO: 根据实际需求处理接收到的数据
+        {
+            // 云端下发物模型属性设置 → 转发给 STM32
+            char *data_str = strndup(event->data, event->data_len);
+            if (data_str) {
+                // OneNET 下发格式：{"id":"xxx","params":{"dB_enable":{"value":true},...}}
+                // 简单解析：查找关键字匹配并发出对应子命令
+                uint8_t sub_cmd = 0;
+                uint8_t target_cmd = 0;
+
+                if (strstr(data_str, "\"dB_enable\":{\"value\":true}")) {
+                    target_cmd = CMD_DB; sub_cmd = SUB_CMD_INIT;
+                } else if (strstr(data_str, "\"dB_enable\":{\"value\":false}")) {
+                    target_cmd = CMD_DB; sub_cmd = SUB_CMD_DEINIT;
+                } else if (strstr(data_str, "\"temp_enable\":{\"value\":true}")) {
+                    target_cmd = CMD_TEMPERATURE; sub_cmd = SUB_CMD_INIT;
+                } else if (strstr(data_str, "\"temp_enable\":{\"value\":false}")) {
+                    target_cmd = CMD_TEMPERATURE; sub_cmd = SUB_CMD_DEINIT;
+                }
+
+                if (target_cmd && sub_cmd) {
+                    ESP_LOGI("MQTT", "收到下行命令: cmd=0x%02X sub=%d → 转发 STM32", target_cmd, sub_cmd);
+                    msg_Request(target_cmd, &sub_cmd, 1);
+                }
+                free(data_str);
+            }
             break;
+        }
         case MQTT_EVENT_ERROR://错误事件
             ESP_LOGI("MQTT","发生错误");
             break;

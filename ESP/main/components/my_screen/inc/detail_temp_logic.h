@@ -10,5 +10,11 @@ void temp_start();
 bool temp_get_latest_valid(void);
 float temp_get_latest_value(void);
 float temp_get_latest_humidity(void);
+float temp_get_avg(void);
+float temp_get_min(void);
+float temp_get_max(void);
+float humi_get_avg(void);
+float humi_get_min(void);
+float humi_get_max(void);
 QueueHandle_t temp_logic_get_queue(void);
 #endif

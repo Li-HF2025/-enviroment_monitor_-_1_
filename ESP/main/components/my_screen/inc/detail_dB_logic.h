@@ -10,6 +10,9 @@ void dB_start();
 
 bool dB_get_latest_valid(void);
 float dB_get_latest_value(void);
+float dB_get_avg(void);
+float dB_get_min(void);
+float dB_get_max(void);
 
 QueueHandle_t dB_logic_get_queue(void);
 #endif
