@@ -116,6 +116,8 @@ void DB_RTOS_Init(void)
     if (decibelTaskHandle == NULL) {
         decibelTaskHandle = osThreadNew(StartDecibelTask, NULL, &db_task_attr);
     }
+    // 默认自启：上电或重启后自动开始采集
+    DB_Init();
 }
 
 void DB_Init(void) { 

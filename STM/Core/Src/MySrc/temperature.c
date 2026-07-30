@@ -213,7 +213,6 @@ void DHT22_Send_Report(float temperature, float humidity) {
 void DHT22_Task(void *argument) {
     while (1) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-
         while (g_dht22_enabled) {
             OLED_WriteString(0, 0, "Temp:       ");
             OLED_WriteString(1, 0, "Hum:        ");
@@ -265,10 +264,13 @@ void DHT22_RTOS_Init(void) {
     if(dht22TaskHandle == NULL) {
         OLED_WriteString(4, 0, "DHT22 Task Err");
     }
-    g_dht22_enabled = false;
+    g_dht22_enabled = true;
+    xTaskNotifyGive(dht22TaskHandle);   // 默认自启，确保重启后不会卡死
 }
 
 void DHT22_Init(void) {
+    // 如果已运行，不重复初始化
+    if (g_dht22_enabled) return;
     DHT22_Pin_Output();
     HAL_GPIO_WritePin(DHT22_PORT, DHT22_PIN, GPIO_PIN_SET);
     g_dht22_enabled = true;

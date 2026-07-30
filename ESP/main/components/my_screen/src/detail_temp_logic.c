@@ -15,23 +15,27 @@ static void temp_task(void *arg){
     while(1){
         UartTxItem item;
         if(xQueueReceive(temp_queue, &item, portMAX_DELAY) == pdTRUE){
-            if(item.cmd != CMD_TEMPERATURE || item.payload_len < 4){
+            if(item.cmd != CMD_TEMPERATURE || item.payload_len < (int)sizeof(SensorDataBin)){
                 continue;
             }
 
-            int16_t temp_raw = (int16_t)((uint16_t)item.payload[0] | ((uint16_t)item.payload[1] << 8));
-            uint16_t humidity_raw = (uint16_t)item.payload[2] | ((uint16_t)item.payload[3] << 8);
-            float temp_value = (float)temp_raw / 10.0f;
-            float humidity_value = (float)humidity_raw / 10.0f;
+            // 按 SensorDataBin 格式解析（主任务已按 sensor_type 分发了温度/湿度）
+            SensorDataBin sensor;
+            memcpy(&sensor, item.payload, sizeof(SensorDataBin));
+            float value = sensor.value_x10 / 10.0f;
 
-            if(temp_value <= -100.0f || humidity_value <0.0f) continue;//错误数据过滤
-
-            latest_temp_value = temp_value;
-            latest_humidity_value = humidity_value;
-            latest_temp_valid = true;
-            esp_event_post(SENSOR_EVENT_BASE, SENSOR_TEMP_UPDATED, &temp_value, sizeof(float), 0);
-            esp_event_post(SENSOR_EVENT_BASE, SENSOR_HUMI_UPDATED, &humidity_value, sizeof(float), 0);
-
+            if (sensor.sensor_type == 0x01) {
+                // 温度
+                if (value <= -100.0f || value > 80.0f) continue;
+                latest_temp_value = value;
+                latest_temp_valid = true;
+                esp_event_post(SENSOR_EVENT_BASE, SENSOR_TEMP_UPDATED, &value, sizeof(float), 0);
+            } else if (sensor.sensor_type == 0x04) {
+                // 湿度
+                if (value < 0.0f || value > 100.0f) continue;
+                latest_humidity_value = value;
+                esp_event_post(SENSOR_EVENT_BASE, SENSOR_HUMI_UPDATED, &value, sizeof(float), 0);
+            }
         }
     }
 }
