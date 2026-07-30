@@ -239,8 +239,7 @@ void DHT22_Task(void *argument) {
                 snprintf(err_str, sizeof(err_str), "ERR:%d", (int)g_dht22_last_error);
                 OLED_WriteString(0, 0, err_str);
                 OLED_WriteString(1, 0, err_str);
-                sensor_report(CMD_TEMPERATURE, 0x01, 0, 0x04);
-                sensor_report(CMD_TEMPERATURE, 0x04, 0, 0x04);
+                // 单次读取失败不报告故障，避免误触发 ESP32 端告警
             }
 
             osDelay(2000);

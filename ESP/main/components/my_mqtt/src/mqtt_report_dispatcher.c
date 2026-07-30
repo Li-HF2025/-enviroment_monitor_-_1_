@@ -49,11 +49,8 @@ static bool cache_publish_cb(uint8_t sensor_type, int16_t value_x10, uint32_t ti
     else return false;
 
     mqtt_report_set_float(key, value_x10 / 10.0f);
-    // 单条发布（补传时逐条发送，确保不丢）
-    if (mqtt_publish_single_report(key, value_x10 / 10.0f)) {
-        return true;
-    }
-    return false;
+    mqtt_publish_all_report();  // 用批量发布代替单条，复用已有 JSON 编码
+    return true;  // 尽力而为，不计单条成败
 }
 
 /** @brief WiFi 事件处理：记录连接状态，恢复时触发补传 */
